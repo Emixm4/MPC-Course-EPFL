@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_3_1.MPCControl_base import MPCControl_base
 
 
 class MPCControl_zvel(MPCControl_base):

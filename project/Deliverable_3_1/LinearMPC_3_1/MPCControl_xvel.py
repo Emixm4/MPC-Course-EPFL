@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_3_1.MPCControl_base import MPCControl_base
 
 
 class MPCControl_xvel(MPCControl_base):
@@ -34,9 +34,9 @@ class MPCControl_xvel(MPCControl_base):
         - Small penalty on wy (it's a derivative term)
         """
         Q = np.diag([1.0,   # wy
-                     100.0,  # beta (keep small!)
+                     5.0,  # beta (keep small!)
                      10.0])  # vx
-        R = np.diag([0.1])  # d2
+        R = np.diag([1])  # d2
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -51,10 +51,10 @@ class MPCControl_xvel(MPCControl_base):
         """
         # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wy
-                          -0.1745,       # beta >= -10 deg (absolute constraint, same in delta since xs[beta]=0)
+                          -0.172788,       # beta >= -9.9 deg (absolute constraint, same in delta since xs[beta]=0)
                           -np.inf])      # vx
         x_max = np.array([np.inf,        # wy
-                          0.1745,        # beta <= 10 deg
+                          0.172788,        # beta <= 9.9 deg
                           np.inf])       # vx
 
         # Input constraints - in delta coordinates
