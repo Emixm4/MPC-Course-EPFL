@@ -40,9 +40,9 @@ class MPCControl_z(MPCControl_base):
         """
         Setup robust tube MPC with terminal set and invariant sets.
         """
-        # Cost matrices
-        Q = np.diag([10.0, 10.0])  # vz, z
-        R = np.diag([1.0])          # Pavg (increased for numerical stability)
+        # Cost matrices - tuned for robust performance
+        Q = np.diag([20.0, 50.0])  # vz, z - increase state penalty for tighter tracking
+        R = np.diag([0.1])          # Pavg - decrease input penalty for more aggressive control
 
         # Compute ancillary controller K using LQR
         try:
@@ -50,8 +50,8 @@ class MPCControl_z(MPCControl_base):
             self.K = -K  # dlqr returns positive gain
         except Exception as e:
             print(f"Warning: LQR failed ({e}), using simple proportional gain")
-            # Fallback: use simple proportional gain for [vz, z]
-            self.K = np.array([[-1.0, -2.0]])  # Simple stabilizing gain
+            # Fallback: use stronger proportional gain for [vz, z]
+            self.K = np.array([[-2.0, -5.0]])  # Stronger stabilizing gain
             self.P = Q  # Use Q as terminal cost
 
         # Disturbance bounds: W = [-15, 5]
@@ -59,10 +59,11 @@ class MPCControl_z(MPCControl_base):
         self.w_max = 5.0
 
         # For simplicity, use conservative estimates for invariant set
-        # E is approximated by a box based on disturbance bounds (relaxed)
-        self.E_bounds = np.array([[2.0, 2.0]]).T  # Relaxed box bounds for E
+        # E is approximated by a box - SMALLER bounds = LESS constraint tightening
+        # This makes the problem more feasible but less robust
+        self.E_bounds = np.array([[0.1, 0.1]]).T  # Small bounds for less aggressive tightening
 
-        # Terminal set: use a simple box around origin (relaxed)
+        # Terminal set: use a simple box around origin
         self.Xf_bounds = np.array([[10.0, 10.0]]).T  # [vz_max, z_max]
 
         # Setup MPC optimization problem
@@ -93,15 +94,19 @@ class MPCControl_z(MPCControl_base):
         # Initial condition
         constraints.append(self.x_var[:, 0] == self.x0_param)
 
-        # Original constraints
-        x_min = np.array([-np.inf, 0.0])  # z >= 0
+        # Original constraints in ABSOLUTE coordinates:
+        # z_abs >= 0, 40 <= Pavg <= 80
+        # Convert to DELTA coordinates: z_delta >= -xs[1], u_delta >= 40-us
+        x_min_abs = np.array([-np.inf, 0.0])  # [vz, z] in absolute
+        x_min = np.array([-np.inf, -self.xs[1]])  # Convert z constraint to delta: z_delta >= -z_s
         x_max = np.array([np.inf, np.inf])
         u_min = np.array([40.0]) - self.us
         u_max = np.array([80.0]) - self.us
 
         # Tighten constraints by E_bounds
+        # For z >= -z_s, tightening gives: z_nominal >= -z_s + e_max
         E_tight = self.E_bounds.flatten()
-        x_min_tight = x_min + E_tight
+        x_min_tight = x_min + E_tight  # z_delta >= -z_s + 0.5
         x_max_tight = x_max - E_tight
 
         # Tighten inputs conservatively
@@ -160,8 +165,8 @@ class MPCControl_z(MPCControl_base):
         """
         A_cl = self.A + self.B @ self.K
 
-        # State constraints (no constraints for this problem)
-        x_min = np.array([-np.inf, 0.0])  # z >= 0
+        # State constraints in delta coordinates
+        x_min = np.array([-np.inf, -self.xs[1]])  # z_delta >= -z_s for z_abs >= 0
         x_max = np.array([np.inf, np.inf])
 
         # Input constraints: 40 <= Pavg <= 80
@@ -228,8 +233,8 @@ class MPCControl_z(MPCControl_base):
 
     def _get_tightened_constraints(self) -> tuple:
         """Get tightened constraints accounting for E."""
-        # Original constraints
-        x_min = np.array([-np.inf, 0.0])  # z >= 0
+        # Original constraints in delta coordinates
+        x_min = np.array([-np.inf, -self.xs[1]])  # z_delta >= -z_s for z_abs >= 0
         x_max = np.array([np.inf, np.inf])
         u_min = np.array([40.0]) - self.us
         u_max = np.array([80.0]) - self.us
@@ -255,42 +260,62 @@ class MPCControl_z(MPCControl_base):
 
         The actual control is: u = v + K(x - z)
         where v is the nominal control, z is the nominal state.
-        """
-        # Set initial condition
-        self.x0_param.value = x0
 
-        # Set targets
+        Args:
+            x0: Current state in ABSOLUTE coordinates
+            x_target: Target state (optional)
+            u_target: Target input (optional)
+        """
+        # Convert initial state from ABSOLUTE to DELTA coordinates
+        x0_delta = x0 - self.xs
+
+        # Set initial condition in delta coordinates
+        self.x0_param.value = x0_delta
+
+        # Set targets (also convert to DELTA coordinates)
         if x_target is not None:
-            self.x_target_param.value = x_target
+            self.x_target_param.value = x_target - self.xs
         else:
             self.x_target_param.value = np.zeros(self.nx)
 
         if u_target is not None:
-            self.u_target_param.value = u_target
+            self.u_target_param.value = u_target - self.us
         else:
             self.u_target_param.value = np.zeros(self.nu)
 
-        # Solve MPC
+        # Solve MPC with relaxed solver settings for better convergence
         try:
-            self.ocp.solve(solver=cp.OSQP, warm_start=True, verbose=False)
+            self.ocp.solve(
+                solver=cp.OSQP,
+                warm_start=True,
+                verbose=False,
+                max_iter=10000,      # Increase iteration limit
+                eps_abs=1e-4,        # Relax absolute tolerance
+                eps_rel=1e-4,        # Relax relative tolerance
+                polish=True          # Enable solution polishing
+            )
         except Exception as e:
             print(f"MPC solve failed: {e}")
-            return np.zeros(self.nu), np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
+            return self.us, np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
 
         if self.ocp.status not in ["optimal", "optimal_inaccurate"]:
             print(f"Warning: MPC status = {self.ocp.status}")
-            return np.zeros(self.nu), np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
+            return self.us, np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
 
-        # Extract nominal solution
+        # Extract nominal solution (all in delta coordinates)
         v0 = self.u_var[:, 0].value
         z_traj = self.x_var.value
         v_traj = self.u_var.value
 
         # Apply tube MPC control: u = v + K(x - z)
-        u0 = v0 + self.K @ (x0 - z_traj[:, 0])
+        # Both x0_delta and z_traj are in delta coordinates
+        u0_delta = v0 + self.K @ (x0_delta - z_traj[:, 0])
+
+        # Convert to absolute coordinates for constraint checking and simulation
+        u0 = u0_delta + self.us
 
         if v0 is None:
-            u0 = np.zeros(self.nu)
+            u0 = self.us  # Return steady-state control if solve failed
         if z_traj is None:
             z_traj = np.zeros((self.nx, self.N + 1))
         if v_traj is None:

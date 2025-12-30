@@ -99,13 +99,18 @@ class NmpcCtrl:
             ubg.extend([0.0] * self.nx)
 
         # State constraints
-        # z >= 0 (don't go underground)
-        # We add this as a soft constraint by allowing violations
-        # For simplicity, we enforce it as a hard constraint
+        # 1. z >= 0 (don't go underground)
+        # 2. |beta| <= 80° (avoid singularity at beta = 90°)
         for k in range(self.N + 1):
+            # z >= 0
             g.append(X[11, k])  # z (12th state, index 11)
             lbg.append(0.0)     # z >= 0
             ubg.append(ca.inf)  # No upper bound
+
+            # |beta| <= 80° (beta is state index 4)
+            g.append(X[4, k])   # beta (5th state, index 4)
+            lbg.append(-np.deg2rad(80))  # beta >= -80°
+            ubg.append(np.deg2rad(80))   # beta <= 80°
 
         # Concatenate constraints
         g = ca.vertcat(*g)
@@ -121,9 +126,10 @@ class NmpcCtrl:
             ubx.extend([ca.inf] * self.nx)
 
         for k in range(self.N):
-            # Input bounds
-            lbx.extend([-15.0, -15.0, 40.0, -20.0])  # d1, d2, Pavg, d3
-            ubx.extend([15.0, 15.0, 80.0, 20.0])
+            # Input bounds (NMPC has wider Pavg bounds than linear MPC)
+            # IMPORTANT: d1, d2 are in RADIANS, Pavg is percent, d3 is DEGREES
+            lbx.extend([np.deg2rad(-15), np.deg2rad(-15), 10.0, -20.0])  # d1, d2, Pavg, d3
+            ubx.extend([np.deg2rad(15), np.deg2rad(15), 90.0, 20.0])
 
         # Decision variables vector
         w = ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(U, -1, 1))

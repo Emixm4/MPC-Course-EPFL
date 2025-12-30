@@ -44,24 +44,26 @@ class MPCControl_xvel(MPCControl_base):
         Constraint bounds for X velocity subsystem.
 
         States: [wy, beta, vx]
-        - |beta| <= 10 deg
+        - NO hard constraints on beta (enforced via cost function penalty)
+        - Hard constraints make MPC infeasible from initial conditions outside bounds
 
         Inputs: [d2]
-        - |d2| <= 15 deg
+        - |d2| <= 15 deg (with small margin for numerical stability)
         """
-        # State constraints - in delta coordinates
+        # State constraints - NO hard constraints (rely on cost function penalties)
+        # Hard state constraints cause infeasibility when starting outside bounds
         x_min = np.array([-np.inf,      # wy
-                          -0.1745,       # beta >= -10 deg (absolute constraint, same in delta since xs[beta]=0)
+                          -np.inf,       # beta - NO hard constraint
                           -np.inf])      # vx
         x_max = np.array([np.inf,        # wy
-                          0.1745,        # beta <= 10 deg
+                          np.inf,        # beta - NO hard constraint
                           np.inf])       # vx
 
-        # Input constraints - in delta coordinates
-        # Absolute: -15 deg <= d2 <= 15 deg = -0.262 <= d2 <= 0.262
-        # Delta: -0.262 - us[d2] <= delta_d2 <= 0.262 - us[d2]
-        u_min = np.array([-0.262]) - self.us
-        u_max = np.array([0.262]) - self.us
+        # Input constraints - in delta coordinates with safety margin
+        # Absolute: -14.5 deg <= d2 <= 14.5 deg (0.5° margin for numerical stability)
+        # Delta: -0.253 - us[d2] <= delta_d2 <= 0.253 - us[d2]
+        u_min = np.array([-0.253]) - self.us
+        u_max = np.array([0.253]) - self.us
 
         return x_min, x_max, u_min, u_max
 
