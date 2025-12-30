@@ -144,7 +144,7 @@ class MPCControl_base:
         - Constraints are satisfied
         - Minimize input effort: us'*us
         """
-        _, _, u_min, u_max = self._get_constraints()
+        x_min, x_max, u_min, u_max = self._get_constraints()
 
         # Variables for steady-state
         self.xs_var = cp.Variable(self.nx)
@@ -165,6 +165,10 @@ class MPCControl_base:
 
         # Output matches reference: C*xs = ref
         constraints.append(self.C @ self.xs_var == self.ref_param)
+
+        # State constraints (CRITICAL: respect beta limits!)
+        constraints.append(self.xs_var >= x_min)
+        constraints.append(self.xs_var <= x_max)
 
         # Input constraints
         constraints.append(self.us_var >= u_min)

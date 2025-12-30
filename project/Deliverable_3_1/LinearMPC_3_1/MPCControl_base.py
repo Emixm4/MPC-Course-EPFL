@@ -247,6 +247,10 @@ class MPCControl_base:
 
         if self.ocp.status not in ["optimal", "optimal_inaccurate"]:
             print(f"Warning: MPC status = {self.ocp.status}")
+            print(f"  Initial state deviation: {np.linalg.norm(x0):.4f}")
+            print(f"  Horizon length: {self.N} steps ({self.N * self.Ts:.2f}s)")
+            if self.ocp.status == "infeasible_inaccurate":
+                print("  → Problem likely infeasible: increase horizon H or relax constraints")
             # Return zero control
             return (
                 np.zeros(self.nu),
