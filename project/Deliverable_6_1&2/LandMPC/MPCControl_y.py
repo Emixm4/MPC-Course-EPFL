@@ -27,9 +27,9 @@ class MPCControl_y(MPCControl_base):
         """
         Setup nominal MPC for y-position tracking with soft constraints.
         """
-        # Cost matrices
-        Q = np.diag([1.0, 10.0, 1.0, 10.0])  # wx, alpha, vy, y
-        R = np.diag([0.1])                    # d1
+        # Cost matrices - higher penalty on alpha to keep tilt small
+        Q = np.diag([1.0, 100.0, 1.0, 10.0])  # wx, alpha, vy, y - alpha penalty increased
+        R = np.diag([1.0])                     # d1 - increased to reduce aggressive control
 
         # Setup MPC optimization problem
         self.x_var = cp.Variable((self.nx, self.N + 1))
@@ -55,9 +55,14 @@ class MPCControl_y(MPCControl_base):
         # Initial condition
         constraints.append(self.x_var[:, 0] == self.x0_param)
 
-        # Input constraints: -15 <= d1 <= 15 (degrees)
-        u_min = np.array([-15.0]) - self.us
-        u_max = np.array([15.0]) - self.us
+        # Input constraints: -15 <= d1 <= 15 degrees (converted to radians)
+        # Add small margin (0.5°) to avoid boundary violations due to numerical precision
+        u_min = np.array([np.deg2rad(-14.5)]) - self.us
+        u_max = np.array([np.deg2rad(14.5)]) - self.us
+
+        # Note: State constraints on alpha are NOT enforced as hard constraints
+        # The cost function penalizes alpha deviations from target (which is zero)
+        # This keeps the MPC feasible even from far initial conditions
 
         # Dynamics and input bounds
         for k in range(self.N):
@@ -80,26 +85,29 @@ class MPCControl_y(MPCControl_base):
         Solve nominal MPC for y-position tracking.
 
         Args:
-            x0: Current state in delta coordinates
+            x0: Current state in ABSOLUTE coordinates
             x_target: Target state in delta coordinates
             u_target: Target input in delta coordinates
 
         Returns:
-            u0: Optimal control input
+            u0: Optimal control input in ABSOLUTE coordinates
             x_traj: Predicted state trajectory
             u_traj: Predicted input trajectory
         """
-        # Set initial condition
-        self.x0_param.value = x0
+        # Convert initial state from ABSOLUTE to DELTA coordinates
+        x0_delta = x0 - self.xs
 
-        # Set targets
+        # Set initial condition in delta coordinates
+        self.x0_param.value = x0_delta
+
+        # Set targets (also convert to DELTA coordinates)
         if x_target is not None:
-            self.x_target_param.value = x_target
+            self.x_target_param.value = x_target - self.xs
         else:
             self.x_target_param.value = np.zeros(self.nx)
 
         if u_target is not None:
-            self.u_target_param.value = u_target
+            self.u_target_param.value = u_target - self.us
         else:
             self.u_target_param.value = np.zeros(self.nu)
 
@@ -108,19 +116,23 @@ class MPCControl_y(MPCControl_base):
             self.ocp.solve(solver=cp.OSQP, warm_start=True, verbose=False)
         except Exception as e:
             print(f"MPC solve failed: {e}")
-            return np.zeros(self.nu), np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
+            return self.us, np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
 
         if self.ocp.status not in ["optimal", "optimal_inaccurate"]:
             print(f"Warning: MPC status = {self.ocp.status}")
-            return np.zeros(self.nu), np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
+            return self.us, np.zeros((self.nx, self.N + 1)), np.zeros((self.nu, self.N))
 
-        # Extract solution
-        u0 = self.u_var[:, 0].value
+        # Extract solution (in delta coordinates)
+        u0_delta = self.u_var[:, 0].value
         x_traj = self.x_var.value
         u_traj = self.u_var.value
 
-        if u0 is None:
-            u0 = np.zeros(self.nu)
+        # Convert to absolute coordinates for constraint checking and simulation
+        if u0_delta is not None:
+            u0 = u0_delta + self.us
+        else:
+            u0 = self.us  # Return steady-state control if solve failed
+
         if x_traj is None:
             x_traj = np.zeros((self.nx, self.N + 1))
         if u_traj is None:
