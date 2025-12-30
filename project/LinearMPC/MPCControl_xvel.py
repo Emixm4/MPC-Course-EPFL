@@ -1,0 +1,66 @@
+import numpy as np
+from LinearMPC.MPCControl_base import MPCControl_base
+
+
+class MPCControl_xvel(MPCControl_base):
+    """
+    MPC controller for X velocity subsystem.
+
+    Full subsystem states: [wy, beta, vx, x]
+    Velocity controller states: [wy, beta, vx] (no x position!)
+    Input: [d2]
+
+    Constraints:
+    - |beta| <= 10 deg = 0.1745 rad (linearization validity)
+    - |d2| <= 15 deg = 0.262 rad (servo limits)
+    """
+
+    # State indices: wy=1, beta=4, vx=6 (NO x=9 for velocity controller!)
+    x_ids = np.array([1, 4, 6])
+    u_ids = np.array([1])  # d2
+
+    def _get_cost_matrices(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Cost matrices for X velocity controller.
+
+        States: [wy, beta, vx]
+        - wy: angular velocity (rad/s)
+        - beta: pitch angle (rad)
+        - vx: velocity in x (m/s)
+
+        Tuning:
+        - Penalize beta most (keep small angles for linearization validity)
+        - Penalize vx for velocity tracking
+        - Small penalty on wy (it's a derivative term)
+        """
+        Q = np.diag([1.0,   # wy
+                     100.0,  # beta (keep small!)
+                     10.0])  # vx
+        R = np.diag([0.1])  # d2
+        return Q, R
+
+    def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Constraint bounds for X velocity subsystem.
+
+        States: [wy, beta, vx]
+        - |beta| <= 10 deg
+
+        Inputs: [d2]
+        - |d2| <= 15 deg
+        """
+        # State constraints - in delta coordinates
+        x_min = np.array([-np.inf,      # wy
+                          -0.1745,       # beta >= -10 deg (absolute constraint, same in delta since xs[beta]=0)
+                          -np.inf])      # vx
+        x_max = np.array([np.inf,        # wy
+                          0.1745,        # beta <= 10 deg
+                          np.inf])       # vx
+
+        # Input constraints - in delta coordinates
+        # Absolute: -15 deg <= d2 <= 15 deg = -0.262 <= d2 <= 0.262
+        # Delta: -0.262 - us[d2] <= delta_d2 <= 0.262 - us[d2]
+        u_min = np.array([-0.262]) - self.us
+        u_max = np.array([0.262]) - self.us
+
+        return x_min, x_max, u_min, u_max
