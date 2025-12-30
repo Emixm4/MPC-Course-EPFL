@@ -397,7 +397,7 @@ class Rocket(RocketBase):
             return Rocket.integrate_step(current_rocket.f, x0, u0, Ts)
         
 
-    def simulate_control(self, mpc, sim_time: float, H: float, x0: np.ndarray, method: str='nonlinear', x_target=None, u_target=None, pos_control=None):
+    def simulate_control(self, mpc, sim_time: float, H: float, x0: np.ndarray, method: str='nonlinear', x_target=None, u_target=None, pos_control=None, sim="CLOSED_LOOP"):
         N_cl = int(sim_time / self.Ts)
         N_ol = int(H / self.Ts)
 
@@ -423,15 +423,16 @@ class Rocket(RocketBase):
             current_rocket = copy.deepcopy(self)
 
         # Closed-loop simulation
-        for k in range(N_cl):
-            print(f"Simulating time {t_cl[k]:.2f}", end=': ')
-            if pos_control is not None:
-                x_target[6:9, k] = pos_control.get_u(x_cl[9:12, k])
-            u_cl[:, k], x_ol[..., k], u_ol[..., k], t_ol[..., k] = mpc.get_u(t_cl[k], x_cl[:, k], x_target=x_target[:, k], u_target=u_target)
-            x_cl[:, k+1] = current_rocket.simulate_step(x_cl[:, k], self.Ts, u_cl[:, k], method=method)
-            mpc.estimate_parameters(x_cl[:, k:k+2], u_cl[:, k:k+1])
-            t_cl[k+1] = t_cl[k] + self.Ts
-            print('', end='\n')
+        if sim == "CLOSED_LOOP":
+            for k in range(N_cl):
+                print(f"Simulating time {t_cl[k]:.2f}", end=': ')
+                if pos_control is not None:
+                    x_target[6:9, k] = pos_control.get_u(x_cl[9:12, k])
+                u_cl[:, k], x_ol[..., k], u_ol[..., k], t_ol[..., k] = mpc.get_u(t_cl[k], x_cl[:, k], x_target=x_target[:, k], u_target=u_target)
+                x_cl[:, k+1] = current_rocket.simulate_step(x_cl[:, k], self.Ts, u_cl[:, k], method=method)
+                mpc.estimate_parameters(x_cl[:, k:k+2], u_cl[:, k:k+1])
+                t_cl[k+1] = t_cl[k] + self.Ts
+                print('', end='\n')
 
 
         return t_cl, x_cl, u_cl, t_ol, x_ol, u_ol, x_target
