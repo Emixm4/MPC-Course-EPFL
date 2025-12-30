@@ -658,18 +658,18 @@ def constraint_check(rocket, x: np.ndarray, u: np.ndarray) -> bool:
     terminate = False
     if np.any(u < LBU-1e-5):
         for index in np.where(u < LBU-1e-5)[0]:
-            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.2f} < {LBU[index]:.2f}", end=', ')
+            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.6f} < {LBU[index]:.6f}", end=', ')
         terminate = True
     if np.any(u > UBU+1e-5):
         for index in np.where(u > UBU+1e-5)[0]:
-            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.2f} > {UBU[index]:.2f}", end=', ')
+            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.6f} > {UBU[index]:.6f}", end=', ')
         terminate = True
     if np.any(x < LBX-1e-5):
         for index in np.where(x < LBX-1e-5)[0]:
-            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.2f} < {LBX[index]:.2f}", end=', ')
+            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.6f} < {LBX[index]:.6f}", end=', ')
     if np.any(x > UBX+1e-5):
         for index in np.where(x > UBX+1e-5)[0]:
-            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.2f} > {UBX[index]:.2f}", end=', ')
+            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.6f} > {UBX[index]:.6f}", end=', ')
 
     return terminate
 
