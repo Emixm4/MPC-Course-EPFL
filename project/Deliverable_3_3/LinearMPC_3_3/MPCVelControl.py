@@ -1,8 +1,8 @@
 import numpy as np
-from LinearMPC.MPCControl_xvel import MPCControl_xvel
-from LinearMPC.MPCControl_yvel import MPCControl_yvel
-from LinearMPC.MPCControl_zvel import MPCControl_zvel
-from LinearMPC.MPCControl_roll import MPCControl_roll
+from LinearMPC_3_3.MPCControl_xvel import MPCControl_xvel
+from LinearMPC_3_3.MPCControl_yvel import MPCControl_yvel
+from LinearMPC_3_3.MPCControl_zvel import MPCControl_zvel
+from LinearMPC_3_3.MPCControl_roll import MPCControl_roll
 
 
 class MPCVelControl:

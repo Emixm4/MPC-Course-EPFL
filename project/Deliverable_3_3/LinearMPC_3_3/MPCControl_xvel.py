@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_3_3.MPCControl_base import MPCControl_base
 
 
 class MPCControl_xvel(MPCControl_base):
@@ -33,10 +33,10 @@ class MPCControl_xvel(MPCControl_base):
         - Penalize vx for velocity tracking
         - Small penalty on wy (it's a derivative term)
         """
-        Q = np.diag([1.0,   # wy
-                     100.0,  # beta (keep small!)
-                     10.0])  # vx
-        R = np.diag([0.1])  # d2
+        Q = np.diag([10.0,   # wy - increased to reduce oscillations
+                     20.0,  # beta (keep small!)
+                     30.0])  # vx - increased for faster tracking
+        R = np.diag([100])  # d2 - increased to reduce input oscillations
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -51,10 +51,10 @@ class MPCControl_xvel(MPCControl_base):
         """
         # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wy
-                          -0.1745,       # beta >= -10 deg (absolute constraint, same in delta since xs[beta]=0)
+                          -0.172788,       # beta >= -10 deg (absolute constraint, same in delta since xs[beta]=0)
                           -np.inf])      # vx
         x_max = np.array([np.inf,        # wy
-                          0.1745,        # beta <= 10 deg
+                          0.172788,        # beta <= 10 deg
                           np.inf])       # vx
 
         # Input constraints - in delta coordinates
