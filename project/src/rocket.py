@@ -204,7 +204,7 @@ class Rocket(RocketBase):
         # Initial guess: hover-ish throttle
         y0 = np.zeros(self.nx + self.nu)
         y0 = np.hstack([x_ref, np.zeros(self.nu)])	
-        y0[self.nx + 2] = 60.0  # guess Pavg ≈ 60%
+        y0[self.nx + 2] = 55.0  # guess Pavg ≈ 60%
 
         # Build and solve NLP
         y = ca.vertcat(x, u)

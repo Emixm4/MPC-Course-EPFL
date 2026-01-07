@@ -33,10 +33,10 @@ class MPCControl_xvel(MPCControl_base):
         - Penalize vx heavily for velocity tracking
         - Small penalty on wy (it's a derivative term)
         """
-        Q = np.diag([1.0,   # wy
+        Q = np.diag([5.0,   # wy
                      5.0,   # beta (keep small!)
-                     10.0])  # vx (increased for better tracking!)
-        R = np.diag([10])  # d2
+                     5.0])  # vx (increased for better tracking!)
+        R = np.diag([30])  # d2
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -51,17 +51,17 @@ class MPCControl_xvel(MPCControl_base):
         """
         # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wy
-                          -0.172788,    # beta >= -9.9 deg = -0.172788 rad
+                          -np.deg2rad(10),    # beta >= -9.9 deg = -0.172788 rad
                           -np.inf])      # vx
         x_max = np.array([np.inf,        # wy
-                          0.172788,     # beta <= 9.9 deg = 0.172788 rad
+                          np.deg2rad(10),     # beta <= 9.9 deg = 0.172788 rad
                           np.inf])       # vx
 
         # Input constraints - in delta coordinates
         # Absolute: -15 deg <= d2 <= 15 deg = -0.262 <= d2 <= 0.262
         # Delta: -0.262 - us[d2] <= delta_d2 <= 0.262 - us[d2]
-        u_min = np.array([-0.262]) - self.us
-        u_max = np.array([0.262]) - self.us
+        u_min = np.array([-np.deg2rad(15)]) - self.us
+        u_max = np.array([np.deg2rad(15)]) - self.us
 
         return x_min, x_max, u_min, u_max
 

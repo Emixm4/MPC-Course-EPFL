@@ -36,7 +36,7 @@ class MPCControl_yvel(MPCControl_base):
         Q = np.diag([1.0,   # wx
                      5.0,  # alpha (keep small!)
                      10.0])  # vy
-        R = np.diag([1])  # d1
+        R = np.diag([10])  # d1
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

@@ -51,17 +51,17 @@ class MPCControl_yvel(MPCControl_base):
         """
         # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wx
-                          -0.172788,       # alpha >= -10 deg (absolute constraint, same in delta since xs[alpha]=0)
+                          -np.deg2rad(10),       # alpha >= -10 deg (absolute constraint, same in delta since xs[alpha]=0)
                           -np.inf])      # vy
         x_max = np.array([np.inf,        # wx
-                          0.172788,        # alpha <= 10 deg
+                          np.deg2rad(10),        # alpha <= 10 deg
                           np.inf])       # vy
 
         # Input constraints - in delta coordinates
         # Absolute: -15 deg <= d1 <= 15 deg = -0.262 <= d1 <= 0.262
         # Delta: -0.262 - us[d1] <= delta_d1 <= 0.262 - us[d1]
-        u_min = np.array([-0.262]) - self.us
-        u_max = np.array([0.262]) - self.us
+        u_min = np.array([-np.deg2rad(15)]) - self.us
+        u_max = np.array([np.deg2rad(15)]) - self.us
 
         return x_min, x_max, u_min, u_max
 

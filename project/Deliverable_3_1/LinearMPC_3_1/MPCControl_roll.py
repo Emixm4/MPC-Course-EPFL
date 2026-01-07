@@ -33,7 +33,7 @@ class MPCControl_roll(MPCControl_base):
         """
         Q = np.diag([1.0,    # wz
                      10.0])  # gamma (keep upright)
-        R = np.diag([0.1])   # Pdiff
+        R = np.diag([0.1])   # Pdiff (small to allow aggressive control)
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
