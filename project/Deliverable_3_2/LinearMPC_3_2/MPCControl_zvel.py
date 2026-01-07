@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_3_2.MPCControl_base import MPCControl_base
 
 
 class MPCControl_zvel(MPCControl_base):
@@ -52,10 +52,3 @@ class MPCControl_zvel(MPCControl_base):
         u_max = np.array([80.0]) - self.us
 
         return x_min, x_max, u_min, u_max
-
-    def _get_output_matrix(self) -> np.ndarray:
-        """
-        Output matrix C for Z velocity controller.
-        Selects vz from state [vz].
-        """
-        return np.array([[1.0]])  # Output is vz
