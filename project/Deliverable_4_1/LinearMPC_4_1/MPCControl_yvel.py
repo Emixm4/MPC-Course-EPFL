@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_4_1.MPCControl_base import MPCControl_base
 
 
 class MPCControl_yvel(MPCControl_base):
@@ -33,10 +33,10 @@ class MPCControl_yvel(MPCControl_base):
         - Penalize vy for velocity tracking
         - Small penalty on wx (it's a derivative term)
         """
-        Q = np.diag([1.0,   # wx
-                     100.0,  # alpha (keep small!)
-                     10.0])  # vy
-        R = np.diag([0.1])  # d1
+        Q = np.diag([100,   # wx - angular velocity
+                     200,   # alpha - TRÈS élevé pour garder petits angles (nonlinear!)
+                     400])  # vy - élevé pour tracking précis
+        R = np.diag([90])  # d1 - réduit pour corrections plus agressives
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -51,17 +51,17 @@ class MPCControl_yvel(MPCControl_base):
         """
         # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wx
-                          -0.1745,       # alpha >= -10 deg (absolute constraint, same in delta since xs[alpha]=0)
+                          -np.deg2rad(10),       # alpha >= -10 deg (absolute constraint, same in delta since xs[alpha]=0)
                           -np.inf])      # vy
         x_max = np.array([np.inf,        # wx
-                          0.1745,        # alpha <= 10 deg
+                          np.deg2rad(10),        # alpha <= 10 deg
                           np.inf])       # vy
 
         # Input constraints - in delta coordinates
         # Absolute: -15 deg <= d1 <= 15 deg = -0.262 <= d1 <= 0.262
         # Delta: -0.262 - us[d1] <= delta_d1 <= 0.262 - us[d1]
-        u_min = np.array([-0.262]) - self.us
-        u_max = np.array([0.262]) - self.us
+        u_min = np.array([-np.deg2rad(15)]) - self.us
+        u_max = np.array([np.deg2rad(15)]) - self.us
 
         return x_min, x_max, u_min, u_max
 
