@@ -27,8 +27,8 @@ class MPCControl_zvel(MPCControl_base):
         - Q: Penalize velocity error
         - R: Penalize throttle usage (keep it smooth)
         """
-        Q = np.diag([200])  # vz cost
-        R = np.diag([10])   # Pavg cost (small to allow aggressive control)
+        Q = np.diag([20])  # vz cost - velocity tracking
+        R = np.diag([1])   # Pavg cost - allow responsive throttle
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

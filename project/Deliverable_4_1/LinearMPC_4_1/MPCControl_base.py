@@ -36,6 +36,7 @@ class MPCControl_base:
     target_ocp: cp.Problem  # Steady-state target solver
     x_var: cp.Variable
     u_var: cp.Variable
+    slack_var: cp.Variable  # Slack variables for soft state constraints
     x0_param: cp.Parameter
     x_ref_param: cp.Parameter
     u_ref_param: cp.Parameter
@@ -44,6 +45,9 @@ class MPCControl_base:
     xs_var: cp.Variable
     us_var: cp.Variable
     ref_param: cp.Parameter
+    
+    # Slack variable penalty weight
+    slack_weight: float = 1e5  # High penalty to minimize constraint violations
 
     def __init__(
         self,
@@ -94,6 +98,13 @@ class MPCControl_base:
         # Setup CVXPY optimization problem
         self.x_var = cp.Variable((self.nx, self.N + 1))
         self.u_var = cp.Variable((self.nu, self.N))
+        
+        # Slack variables for soft state constraints (one per state per time step)
+        # Only create slacks for states with finite bounds
+        slack_needed = np.logical_or(np.isfinite(x_min), np.isfinite(x_max))
+        n_slack = np.sum(slack_needed)
+        self.slack_var = cp.Variable((n_slack, self.N), nonneg=True) if n_slack > 0 else None
+        
         self.x0_param = cp.Parameter(self.nx)
         self.x_ref_param = cp.Parameter(self.nx)
         self.u_ref_param = cp.Parameter(self.nu)
@@ -102,12 +113,16 @@ class MPCControl_base:
         self.x_ref_param.value = np.zeros(self.nx)
         self.u_ref_param.value = np.zeros(self.nu)
 
-        # Build cost function - track references
+        # Build cost function - track references + penalize slack
         cost = 0
         for k in range(self.N):
             dx = self.x_var[:, k] - self.x_ref_param
             du = self.u_var[:, k] - self.u_ref_param
             cost += cp.quad_form(dx, Q) + cp.quad_form(du, R)
+            
+            # Add slack penalty (L1 norm)
+            if self.slack_var is not None:
+                cost += self.slack_weight * cp.sum(self.slack_var[:, k])
 
         # NOTE: No terminal cost or terminal set for tracking (Deliverable 3.2)
 
@@ -124,11 +139,23 @@ class MPCControl_base:
                 self.x_var[:, k + 1] == self.A @ self.x_var[:, k] + self.B @ self.u_var[:, k]
             )
 
-            # State constraints
-            constraints.append(self.x_var[:, k] >= x_min)
-            constraints.append(self.x_var[:, k] <= x_max)
+            # Soft state constraints (with slack variables)
+            if self.slack_var is not None:
+                slack_idx = 0
+                for i in range(self.nx):
+                    if np.isfinite(x_min[i]) or np.isfinite(x_max[i]):
+                        # Soft constraints: allow violation with slack
+                        if np.isfinite(x_min[i]):
+                            constraints.append(self.x_var[i, k] >= x_min[i] - self.slack_var[slack_idx, k])
+                        if np.isfinite(x_max[i]):
+                            constraints.append(self.x_var[i, k] <= x_max[i] + self.slack_var[slack_idx, k])
+                        slack_idx += 1
+            else:
+                # No slack needed - hard constraints
+                constraints.append(self.x_var[:, k] >= x_min)
+                constraints.append(self.x_var[:, k] <= x_max)
 
-            # Input constraints
+            # Input constraints (remain hard - physical limits)
             constraints.append(self.u_var[:, k] >= u_min)
             constraints.append(self.u_var[:, k] <= u_max)
 

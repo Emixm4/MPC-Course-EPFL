@@ -33,10 +33,10 @@ class MPCControl_xvel(MPCControl_base):
         - Penalize vx for velocity tracking
         - Small penalty on wy (it's a derivative term)
         """
-        Q = np.diag([100,   # wy - angular velocity
-                     200,  # beta - TRÈS élevé pour garder petits angles (nonlinear!)
-                     400])  # vx - élevé pour tracking précis
-        R = np.diag([90])  # d2 - réduit pour corrections plus agressives
+        Q = np.diag([50,    # wy - HIGH weight on angular velocity (avoid aggressive maneuvers)
+                     100,   # beta - moderate to keep small angles  
+                     80])   # vx - moderate for velocity tracking
+        R = np.diag([100])  # d2 - moderate input cost
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
