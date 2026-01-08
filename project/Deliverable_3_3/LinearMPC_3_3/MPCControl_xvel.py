@@ -35,8 +35,8 @@ class MPCControl_xvel(MPCControl_base):
         """
         Q = np.diag([10.0,   # wy - increased to reduce oscillations
                      20.0,  # beta (keep small!)
-                     30.0])  # vx - increased for faster tracking
-        R = np.diag([100])  # d2 - increased to reduce input oscillations
+                     40.0])  # vx - increased for faster tracking
+        R = np.diag([90])  # d2 - increased to reduce input oscillations
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
