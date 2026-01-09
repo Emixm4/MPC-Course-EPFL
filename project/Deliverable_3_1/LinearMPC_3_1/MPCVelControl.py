@@ -1,19 +1,19 @@
 import numpy as np
-from LinearMPC.MPCControl_xvel import MPCControl_xvel
-from LinearMPC.MPCControl_yvel import MPCControl_yvel
-from LinearMPC.MPCControl_zvel import MPCControl_zvel
-from LinearMPC.MPCControl_roll import MPCControl_roll
+from LinearMPC_3_1.MPCControl_xvel import MPCControl_xvel
+from LinearMPC_3_1.MPCControl_yvel import MPCControl_yvel
+from LinearMPC_3_1.MPCControl_zvel import MPCControl_zvel
+from LinearMPC_3_1.MPCControl_roll import MPCControl_roll
 
 
 class MPCVelControl:
     """
-    Wrapper class for all 4 MPC velocity/angle tracking controllers (Deliverable 3.2).
+    Wrapper class for all 4 MPC velocity controllers.
 
     Combines:
-    - MPCControl_xvel: Tracks vx via d2
-    - MPCControl_yvel: Tracks vy via d1
-    - MPCControl_zvel: Tracks vz via Pavg
-    - MPCControl_roll: Tracks gamma (roll angle) via Pdiff
+    - MPCControl_xvel: Controls [wy, beta, vx] via d2
+    - MPCControl_yvel: Controls [wx, alpha, vy] via d1
+    - MPCControl_zvel: Controls [vz] via Pavg
+    - MPCControl_roll: Controls [wz, gamma] via Pdiff
 
     Full state vector: x = [wx, wy, wz, alpha, beta, gamma, vx, vy, vz, x, y, z]
     Full input vector: u = [d1, d2, Pavg, Pdiff]
@@ -74,18 +74,13 @@ class MPCVelControl:
         u_target: np.ndarray = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get control input from all 4 MPC tracking controllers (Deliverable 3.2).
-
-        Each controller now solves a two-stage problem:
-        1. Compute steady-state target (x_ref, u_ref) from output reference
-        2. Solve MPC to track the computed target
+        Get control input from all 4 MPC controllers.
 
         Args:
             t: Current time (not used, but required by simulate_control)
             x: Current full state [wx, wy, wz, alpha, beta, gamma, vx, vy, vz, x, y, z]
             x_target: Target full state (optional, for tracking)
-                      Velocities vx, vy, vz and roll angle gamma are extracted as references
-            u_target: Target input (optional, not used in tracking)
+            u_target: Target input (optional, not used in velocity control)
 
         Returns:
             u: Control input [d1, d2, Pavg, Pdiff]
@@ -103,41 +98,37 @@ class MPCVelControl:
         # Safety margin for numerical precision (0.1%)
         eps = 1e-3
 
-        # Extract delta states (x - xs) and output references for each controller
+        # Extract delta states (x - xs) for each controller
         # Y velocity controller: [wx, alpha, vy] -> d1
-        # Controlled output: vy (index 7 in full state)
         x0_yvel = x[self.mpc_yvel.x_ids] - self.mpc_yvel.xs
-        ref_yvel = None
+        x_target_yvel = None
         if x_target is not None:
-            ref_yvel = np.array([x_target[7]])  # vy reference
-        u_yvel, x_traj_yvel, u_traj_yvel = self.mpc_yvel.get_u(x0_yvel, ref=ref_yvel)
+            x_target_yvel = x_target[self.mpc_yvel.x_ids] - self.mpc_yvel.xs
+        u_yvel, x_traj_yvel, u_traj_yvel = self.mpc_yvel.get_u(x0_yvel, x_target_yvel)
         u[0] = np.clip(u_yvel[0] + self.mpc_yvel.us[0], -0.262 + eps, 0.262 - eps)  # d1
 
         # X velocity controller: [wy, beta, vx] -> d2
-        # Controlled output: vx (index 6 in full state)
         x0_xvel = x[self.mpc_xvel.x_ids] - self.mpc_xvel.xs
-        ref_xvel = None
+        x_target_xvel = None
         if x_target is not None:
-            ref_xvel = np.array([x_target[6]])  # vx reference
-        u_xvel, x_traj_xvel, u_traj_xvel = self.mpc_xvel.get_u(x0_xvel, ref=ref_xvel)
+            x_target_xvel = x_target[self.mpc_xvel.x_ids] - self.mpc_xvel.xs
+        u_xvel, x_traj_xvel, u_traj_xvel = self.mpc_xvel.get_u(x0_xvel, x_target_xvel)
         u[1] = np.clip(u_xvel[0] + self.mpc_xvel.us[0], -0.262 + eps, 0.262 - eps)  # d2
 
         # Z velocity controller: [vz] -> Pavg
-        # Controlled output: vz (index 8 in full state)
         x0_zvel = x[self.mpc_zvel.x_ids] - self.mpc_zvel.xs
-        ref_zvel = None
+        x_target_zvel = None
         if x_target is not None:
-            ref_zvel = np.array([x_target[8]])  # vz reference
-        u_zvel, x_traj_zvel, u_traj_zvel = self.mpc_zvel.get_u(x0_zvel, ref=ref_zvel)
+            x_target_zvel = x_target[self.mpc_zvel.x_ids] - self.mpc_zvel.xs
+        u_zvel, x_traj_zvel, u_traj_zvel = self.mpc_zvel.get_u(x0_zvel, x_target_zvel)
         u[2] = np.clip(u_zvel[0] + self.mpc_zvel.us[0], 40.0 + eps, 80.0 - eps)  # Pavg
 
         # Roll controller: [wz, gamma] -> Pdiff
-        # Controlled output: gamma (index 5 in full state)
         x0_roll = x[self.mpc_roll.x_ids] - self.mpc_roll.xs
-        ref_roll = None
+        x_target_roll = None
         if x_target is not None:
-            ref_roll = np.array([x_target[5]])  # gamma (roll angle) reference
-        u_roll, x_traj_roll, u_traj_roll = self.mpc_roll.get_u(x0_roll, ref=ref_roll)
+            x_target_roll = x_target[self.mpc_roll.x_ids] - self.mpc_roll.xs
+        u_roll, x_traj_roll, u_traj_roll = self.mpc_roll.get_u(x0_roll, x_target_roll)
         u[3] = np.clip(u_roll[0] + self.mpc_roll.us[0], -20.0 + eps, 20.0 - eps)  # Pdiff
 
         # Assemble open-loop trajectories from all controllers

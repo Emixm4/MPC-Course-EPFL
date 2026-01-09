@@ -7,7 +7,7 @@ from scipy.signal import cont2discrete
 
 
 class MPCControl_base:
-    """Base class for MPC controllers with terminal set constraints"""
+    """Base class for MPC controllers for tracking (Deliverable 3.2)"""
 
     # To be defined in subclasses
     x_ids: np.ndarray  # State indices this controller uses
@@ -16,10 +16,12 @@ class MPCControl_base:
     # System matrices
     A: np.ndarray
     B: np.ndarray
+    C: np.ndarray  # Output matrix (for steady-state target)
     xs: np.ndarray
     us: np.ndarray
     nx: int
     nu: int
+    ny: int  # Number of outputs
     Ts: float
     H: float
     N: int
@@ -27,17 +29,25 @@ class MPCControl_base:
     # MPC components
     Q: np.ndarray  # State cost
     R: np.ndarray  # Input cost
-    P: np.ndarray  # Terminal cost
-    K_f: np.ndarray  # Terminal controller
-    X_f: Polyhedron  # Terminal invariant set
+    # NOTE: No terminal set for tracking (Deliverable 3.2)
 
-    # Optimization problem
-    ocp: cp.Problem
+    # Optimization problems
+    ocp: cp.Problem  # Main MPC controller
+    target_ocp: cp.Problem  # Steady-state target solver
     x_var: cp.Variable
     u_var: cp.Variable
+    slack_var: cp.Variable  # Slack variables for soft state constraints
     x0_param: cp.Parameter
     x_ref_param: cp.Parameter
     u_ref_param: cp.Parameter
+
+    # Steady-state target solver variables
+    xs_var: cp.Variable
+    us_var: cp.Variable
+    ref_param: cp.Parameter
+    
+    # Slack variable penalty weight
+    slack_weight: float = 1e5  # High penalty to minimize constraint violations
 
     def __init__(
         self,
@@ -65,13 +75,18 @@ class MPCControl_base:
         self.xs = xs[self.x_ids]
         self.us = us[self.u_ids]
 
-        # Setup MPC controller
+        # Get output matrix C from subclass
+        self.C = self._get_output_matrix()
+        self.ny = self.C.shape[0]
+
+        # Setup MPC controller and steady-state target solver
         self._setup_controller()
+        self._setup_steady_state_target()
 
     def _setup_controller(self) -> None:
         """
-        Setup the MPC optimization problem.
-        To be overridden in subclasses to set specific Q, R, constraints.
+        Setup the MPC optimization problem for tracking.
+        No terminal set constraint for Deliverable 3.2.
         """
         # Get tuning parameters and constraints from subclass
         Q, R = self._get_cost_matrices()
@@ -80,17 +95,16 @@ class MPCControl_base:
         self.Q = Q
         self.R = R
 
-        # Compute LQR terminal ingredients
-        K, P, _ = dlqr(self.A, self.B, Q, R)
-        self.K_f = -K  # Feedback gain
-        self.P = P  # Terminal cost
-
-        # Compute terminal invariant set
-        self.X_f = self._compute_terminal_set(x_min, x_max, u_min, u_max)
-
         # Setup CVXPY optimization problem
         self.x_var = cp.Variable((self.nx, self.N + 1))
         self.u_var = cp.Variable((self.nu, self.N))
+        
+        # Slack variables for soft state constraints (one per state per time step)
+        # Only create slacks for states with finite bounds
+        slack_needed = np.logical_or(np.isfinite(x_min), np.isfinite(x_max))
+        n_slack = np.sum(slack_needed)
+        self.slack_var = cp.Variable((n_slack, self.N), nonneg=True) if n_slack > 0 else None
+        
         self.x0_param = cp.Parameter(self.nx)
         self.x_ref_param = cp.Parameter(self.nx)
         self.u_ref_param = cp.Parameter(self.nu)
@@ -99,16 +113,18 @@ class MPCControl_base:
         self.x_ref_param.value = np.zeros(self.nx)
         self.u_ref_param.value = np.zeros(self.nu)
 
-        # Build cost function
+        # Build cost function - track references + penalize slack
         cost = 0
         for k in range(self.N):
             dx = self.x_var[:, k] - self.x_ref_param
             du = self.u_var[:, k] - self.u_ref_param
             cost += cp.quad_form(dx, Q) + cp.quad_form(du, R)
+            
+            # Add slack penalty (L1 norm)
+            if self.slack_var is not None:
+                cost += self.slack_weight * cp.sum(self.slack_var[:, k])
 
-        # Terminal cost
-        dx_N = self.x_var[:, self.N] - self.x_ref_param
-        cost += cp.quad_form(dx_N, self.P)
+        # NOTE: No terminal cost or terminal set for tracking (Deliverable 3.2)
 
         # Build constraints
         constraints = []
@@ -123,96 +139,82 @@ class MPCControl_base:
                 self.x_var[:, k + 1] == self.A @ self.x_var[:, k] + self.B @ self.u_var[:, k]
             )
 
-            # State constraints
-            constraints.append(self.x_var[:, k] >= x_min)
-            constraints.append(self.x_var[:, k] <= x_max)
+            # Soft state constraints (with slack variables)
+            if self.slack_var is not None:
+                slack_idx = 0
+                for i in range(self.nx):
+                    if np.isfinite(x_min[i]) or np.isfinite(x_max[i]):
+                        # Soft constraints: allow violation with slack
+                        if np.isfinite(x_min[i]):
+                            constraints.append(self.x_var[i, k] >= x_min[i] - self.slack_var[slack_idx, k])
+                        if np.isfinite(x_max[i]):
+                            constraints.append(self.x_var[i, k] <= x_max[i] + self.slack_var[slack_idx, k])
+                        slack_idx += 1
+            else:
+                # No slack needed - hard constraints
+                constraints.append(self.x_var[:, k] >= x_min)
+                constraints.append(self.x_var[:, k] <= x_max)
 
-            # Input constraints
+            # Input constraints (remain hard - physical limits)
             constraints.append(self.u_var[:, k] >= u_min)
             constraints.append(self.u_var[:, k] <= u_max)
-
-        # Terminal constraint: x[N] in X_f
-        # NOTE: Temporarily disabled for large deviations - horizon may not be long enough
-        # if self.X_f is not None:
-        #     dx_N = self.x_var[:, self.N] - self.x_ref_param
-        #     constraints.append(self.X_f.A @ dx_N <= self.X_f.b)
 
         # Create optimization problem
         self.ocp = cp.Problem(cp.Minimize(cost), constraints)
 
-    def _compute_terminal_set(
-        self,
-        x_min: np.ndarray,
-        x_max: np.ndarray,
-        u_min: np.ndarray,
-        u_max: np.ndarray,
-        max_iter: int = 20,
-    ) -> Polyhedron:
+    def _setup_steady_state_target(self) -> None:
         """
-        Compute maximal positively invariant set for terminal constraint.
-        Uses the closed-loop system A_cl = A + B*K_f
+        Setup steady-state target optimization problem.
+        Given a reference output, solves for equilibrium (xs, us) such that:
+        - xs = A*xs + B*us (equilibrium)
+        - C*xs = ref (output matches reference)
+        - Constraints are satisfied
+        - Minimize input effort: us'*us
         """
-        # Closed-loop dynamics
-        A_cl = self.A + self.B @ self.K_f
+        _, _, u_min, u_max = self._get_constraints()
 
-        # State constraints: x_min <= x <= x_max
-        # Converted to A*x <= b form
-        A_x = np.vstack([np.eye(self.nx), -np.eye(self.nx)])
-        b_x = np.hstack([x_max, -x_min])
-        X = Polyhedron(H=HData(A=A_x, b=b_x))
+        # Variables for steady-state
+        self.xs_var = cp.Variable(self.nx)
+        self.us_var = cp.Variable(self.nu)
+        self.ref_param = cp.Parameter(self.ny)
 
-        # Input constraints under feedback u = K_f * x
-        # u_min <= K_f @ x <= u_max
-        U_constraints = []
-        for i in range(self.nu):
-            # u_min[i] <= K_f[i,:] @ x <= u_max[i]
-            # => K_f[i,:] @ x <= u_max[i] and -K_f[i,:] @ x <= -u_min[i]
-            U_constraints.append(Polyhedron(H=HData(A=self.K_f[i:i+1, :], b=u_max[i:i+1])))
-            U_constraints.append(Polyhedron(H=HData(A=-self.K_f[i:i+1, :], b=-u_min[i:i+1])))
+        # Default reference
+        self.ref_param.value = np.zeros(self.ny)
 
-        # Combine all constraints
-        XU = X
-        for U_poly in U_constraints:
-            XU = XU.intersect(U_poly)
+        # Cost: minimize input effort
+        cost = cp.quad_form(self.us_var, np.eye(self.nu))
 
-        # Iteratively compute maximal invariant set
-        X_f = XU
-        for i in range(max_iter):
-            # Pre-image: {x | A_cl*x in X_f}
-            Pre_X_f = Polyhedron(H=HData(A=X_f.A @ A_cl, b=X_f.b))
+        # Constraints
+        constraints = []
 
-            # Intersection
-            X_f_new = X_f.intersect(Pre_X_f)
+        # Equilibrium: xs = A*xs + B*us => (I - A)*xs = B*us
+        constraints.append(self.xs_var == self.A @ self.xs_var + self.B @ self.us_var)
 
-            # Remove redundant constraints every 5 iterations to speed up
-            if i % 5 == 4:
-                H_min = X_f_new.minHrep()
-                X_f_new = Polyhedron(H=H_min)
+        # Output matches reference: C*xs = ref
+        constraints.append(self.C @ self.xs_var == self.ref_param)
 
-            # Check convergence
-            if len(X_f_new.A) == len(X_f.A):
-                # Converged (no new constraints added)
-                break
+        # Input constraints
+        constraints.append(self.us_var >= u_min)
+        constraints.append(self.us_var <= u_max)
 
-            X_f = X_f_new
-
-        # Final minimal representation
-        H_final = X_f.minHrep()
-        return Polyhedron(H=H_final)
+        # Create target optimization problem
+        self.target_ocp = cp.Problem(cp.Minimize(cost), constraints)
 
     def get_u(
         self,
         x0: np.ndarray,
-        x_target: np.ndarray = None,
-        u_target: np.ndarray = None,
+        ref: np.ndarray = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Solve MPC problem and return optimal control input.
 
+        For Deliverable 3.2 tracking:
+        1. If ref is given, solve steady-state target problem to get (x_ref, u_ref)
+        2. Solve MPC to track the computed (x_ref, u_ref)
+
         Args:
             x0: Current state (in delta coordinates relative to xs)
-            x_target: Target state (optional, for tracking)
-            u_target: Target input (optional, for tracking)
+            ref: Reference output (e.g., desired velocity or angle)
 
         Returns:
             u0: Optimal control input at current time
@@ -222,15 +224,31 @@ class MPCControl_base:
         # Set initial state (delta coordinates)
         self.x0_param.value = x0
 
-        # Set references (delta coordinates)
-        if x_target is not None:
-            self.x_ref_param.value = x_target
-        else:
-            self.x_ref_param.value = np.zeros(self.nx)
+        # Compute steady-state target if reference is given
+        if ref is not None:
+            self.ref_param.value = ref
 
-        if u_target is not None:
-            self.u_ref_param.value = u_target
+            # Solve steady-state target problem
+            try:
+                self.target_ocp.solve(solver=cp.OSQP, warm_start=True, verbose=False)
+            except Exception as e:
+                print(f"Target solve failed: {e}")
+                # Use zero reference on failure
+                self.x_ref_param.value = np.zeros(self.nx)
+                self.u_ref_param.value = np.zeros(self.nu)
+            else:
+                if self.target_ocp.status in ["optimal", "optimal_inaccurate"]:
+                    # Use computed steady-state targets
+                    self.x_ref_param.value = self.xs_var.value
+                    self.u_ref_param.value = self.us_var.value
+                else:
+                    print(f"Warning: Target status = {self.target_ocp.status}")
+                    # Use zero reference on failure
+                    self.x_ref_param.value = np.zeros(self.nx)
+                    self.u_ref_param.value = np.zeros(self.nu)
         else:
+            # No reference given - regulate to zero
+            self.x_ref_param.value = np.zeros(self.nx)
             self.u_ref_param.value = np.zeros(self.nu)
 
         # Solve MPC problem
@@ -281,6 +299,17 @@ class MPCControl_base:
         To be overridden in subclasses.
         """
         raise NotImplementedError("Subclass must implement _get_constraints()")
+
+    def _get_output_matrix(self) -> np.ndarray:
+        """
+        Get output matrix C for steady-state target computation.
+        C selects the controlled output from the state vector.
+        To be overridden in subclasses.
+
+        For velocity controllers: C selects the velocity state
+        For roll controller: C selects the roll angle state
+        """
+        raise NotImplementedError("Subclass must implement _get_output_matrix()")
 
     @staticmethod
     def _discretize(A: np.ndarray, B: np.ndarray, Ts: float):

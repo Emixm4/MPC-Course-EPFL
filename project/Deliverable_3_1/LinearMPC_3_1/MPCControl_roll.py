@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_3_1.MPCControl_base import MPCControl_base
 
 
 class MPCControl_roll(MPCControl_base):
@@ -33,7 +33,7 @@ class MPCControl_roll(MPCControl_base):
         """
         Q = np.diag([1.0,    # wz
                      10.0])  # gamma (keep upright)
-        R = np.diag([0.1])   # Pdiff
+        R = np.diag([0.1])   # Pdiff (small to allow aggressive control)
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -59,10 +59,3 @@ class MPCControl_roll(MPCControl_base):
         u_max = np.array([20.0]) - self.us
 
         return x_min, x_max, u_min, u_max
-
-    def _get_output_matrix(self) -> np.ndarray:
-        """
-        Output matrix C for roll controller.
-        Selects gamma (roll angle) from state [wz, gamma].
-        """
-        return np.array([[0.0, 1.0]])  # Output is gamma (2nd state)

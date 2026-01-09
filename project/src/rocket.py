@@ -204,7 +204,7 @@ class Rocket(RocketBase):
         # Initial guess: hover-ish throttle
         y0 = np.zeros(self.nx + self.nu)
         y0 = np.hstack([x_ref, np.zeros(self.nu)])	
-        y0[self.nx + 2] = 60.0  # guess Pavg ≈ 60%
+        y0[self.nx + 2] = 55.0  # guess Pavg ≈ 55%
 
         # Build and solve NLP
         y = ca.vertcat(x, u)
@@ -397,7 +397,7 @@ class Rocket(RocketBase):
             return Rocket.integrate_step(current_rocket.f, x0, u0, Ts)
         
 
-    def simulate_control(self, mpc, sim_time: float, H: float, x0: np.ndarray, method: str='nonlinear', x_target=None, u_target=None, pos_control=None):
+    def simulate_control(self, mpc, sim_time: float, H: float, x0: np.ndarray, method: str='nonlinear', x_target=None, u_target=None, pos_control=None, sim="CLOSED_LOOP"):
         N_cl = int(sim_time / self.Ts)
         N_ol = int(H / self.Ts)
 
@@ -423,15 +423,16 @@ class Rocket(RocketBase):
             current_rocket = copy.deepcopy(self)
 
         # Closed-loop simulation
-        for k in range(N_cl):
-            print(f"Simulating time {t_cl[k]:.2f}", end=': ')
-            if pos_control is not None:
-                x_target[6:9, k] = pos_control.get_u(x_cl[9:12, k])
-            u_cl[:, k], x_ol[..., k], u_ol[..., k], t_ol[..., k] = mpc.get_u(t_cl[k], x_cl[:, k], x_target=x_target[:, k], u_target=u_target)
-            x_cl[:, k+1] = current_rocket.simulate_step(x_cl[:, k], self.Ts, u_cl[:, k], method=method)
-            mpc.estimate_parameters(x_cl[:, k:k+2], u_cl[:, k:k+1])
-            t_cl[k+1] = t_cl[k] + self.Ts
-            print('', end='\n')
+        if sim == "CLOSED_LOOP":
+            for k in range(N_cl):
+                print(f"Simulating time {t_cl[k]:.2f}", end=': ')
+                if pos_control is not None:
+                    x_target[6:9, k] = pos_control.get_u(x_cl[9:12, k])
+                u_cl[:, k], x_ol[..., k], u_ol[..., k], t_ol[..., k] = mpc.get_u(t_cl[k], x_cl[:, k], x_target=x_target[:, k], u_target=u_target)
+                x_cl[:, k+1] = current_rocket.simulate_step(x_cl[:, k], self.Ts, u_cl[:, k], method=method)
+                mpc.estimate_parameters(x_cl[:, k:k+2], u_cl[:, k:k+1])
+                t_cl[k+1] = t_cl[k] + self.Ts
+                print('', end='\n')
 
 
         return t_cl, x_cl, u_cl, t_ol, x_ol, u_ol, x_target
@@ -658,18 +659,18 @@ def constraint_check(rocket, x: np.ndarray, u: np.ndarray) -> bool:
     terminate = False
     if np.any(u < LBU-1e-5):
         for index in np.where(u < LBU-1e-5)[0]:
-            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.2f} < {LBU[index]:.2f}", end=', ')
+            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.6f} < {LBU[index]:.6f}", end=', ')
         terminate = True
     if np.any(u > UBU+1e-5):
         for index in np.where(u > UBU+1e-5)[0]:
-            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.2f} > {UBU[index]:.2f}", end=', ')
+            print(f"\n Input {rocket.sys['InputName'][index]} violation: {u[index]:.6f} > {UBU[index]:.6f}", end=', ')
         terminate = True
     if np.any(x < LBX-1e-5):
         for index in np.where(x < LBX-1e-5)[0]:
-            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.2f} < {LBX[index]:.2f}", end=', ')
+            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.6f} < {LBX[index]:.6f}", end=', ')
     if np.any(x > UBX+1e-5):
         for index in np.where(x > UBX+1e-5)[0]:
-            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.2f} > {UBX[index]:.2f}", end=', ')
+            print(f"\n State {rocket.sys['StateName'][index]} violation: {x[index]:.6f} > {UBX[index]:.6f}", end=', ')
 
     return terminate
 

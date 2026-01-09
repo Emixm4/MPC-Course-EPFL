@@ -1,5 +1,5 @@
 import numpy as np
-from LinearMPC.MPCControl_base import MPCControl_base
+from LinearMPC_4_1.MPCControl_base import MPCControl_base
 
 
 class MPCControl_yvel(MPCControl_base):
@@ -33,10 +33,10 @@ class MPCControl_yvel(MPCControl_base):
         - Penalize vy for velocity tracking
         - Small penalty on wx (it's a derivative term)
         """
-        Q = np.diag([1.0,   # wx
-                     100.0,  # alpha (keep small!)
-                     10.0])  # vy
-        R = np.diag([0.1])  # d1
+        Q = np.diag([50,    # wx - HIGH weight on angular velocity (avoid aggressive maneuvers)
+                     100,   # alpha - moderate to keep small angles
+                     80])   # vy - moderate for velocity tracking
+        R = np.diag([100])  # d1 - moderate input cost
         return Q, R
 
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -44,26 +44,24 @@ class MPCControl_yvel(MPCControl_base):
         Constraint bounds for Y velocity subsystem.
 
         States: [wx, alpha, vy]
-        - NO hard constraints on alpha (enforced via cost function penalty)
-        - Hard constraints make MPC infeasible from initial conditions outside bounds
+        - |alpha| <= 10 deg
 
         Inputs: [d1]
-        - |d1| <= 15 deg (with small margin for numerical stability)
+        - |d1| <= 15 deg
         """
-        # State constraints - NO hard constraints (rely on cost function penalties)
-        # Hard state constraints cause infeasibility when starting outside bounds
+        # State constraints - in delta coordinates
         x_min = np.array([-np.inf,      # wx
-                          -np.inf,       # alpha - NO hard constraint
+                          -np.deg2rad(10),       # alpha >= -10 deg (absolute constraint, same in delta since xs[alpha]=0)
                           -np.inf])      # vy
         x_max = np.array([np.inf,        # wx
-                          np.inf,        # alpha - NO hard constraint
+                          np.deg2rad(10),        # alpha <= 10 deg
                           np.inf])       # vy
 
-        # Input constraints - in delta coordinates with safety margin
-        # Absolute: -14.5 deg <= d1 <= 14.5 deg (0.5° margin for numerical stability)
-        # Delta: -0.253 - us[d1] <= delta_d1 <= 0.253 - us[d1]
-        u_min = np.array([-0.253]) - self.us
-        u_max = np.array([0.253]) - self.us
+        # Input constraints - in delta coordinates
+        # Absolute: -15 deg <= d1 <= 15 deg = -0.262 <= d1 <= 0.262
+        # Delta: -0.262 - us[d1] <= delta_d1 <= 0.262 - us[d1]
+        u_min = np.array([-np.deg2rad(15)]) - self.us
+        u_max = np.array([np.deg2rad(15)]) - self.us
 
         return x_min, x_max, u_min, u_max
 
