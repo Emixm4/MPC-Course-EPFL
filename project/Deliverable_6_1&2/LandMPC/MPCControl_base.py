@@ -1,7 +1,6 @@
 import cvxpy as cp
 import numpy as np
 from control import dlqr
-from mpt4py import Polyhedron
 from scipy.signal import cont2discrete
 
 
