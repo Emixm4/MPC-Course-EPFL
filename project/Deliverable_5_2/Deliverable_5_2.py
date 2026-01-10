@@ -1,18 +1,5 @@
 """
-Deliverable 5.2 - Time-Varying Mass (Fuel Consumption)
-
-This script simulates the offset-free MPC controller with:
-- Initial mass: 2.0 kg (50% fuel, 50% structure)
-- Fuel rate: 0.1 (mass decreases linearly with thrust)
-- Initial conditions: pos0 = [0,0,1], v0 = [5,5,10]
-- Velocity reference: vref = [0,0,0]
-- Simulation time: 15 seconds (or until fuel runs out)
-
-Key questions to address:
-1. Why is there still tracking offset in the first few seconds?
-2. How could the estimator be modified for time-varying mass?
-3. What different behaviors occur along the simulation?
-4. What unexpected behavior occurs at the end?
+Deliverable 5.2 - Time-Varying Mass
 """
 
 import os
@@ -20,14 +7,12 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Get the project directory (parent of Deliverable_5_2)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
 from src.rocket import Rocket
 
-# Import Part 5.1 controller (with offset-free tracking)
 part5_dir = os.path.join(parent_dir, "Deliverable_5_1")
 sys.path.insert(0, part5_dir)
 from LinearMPC.MPCVelControl import MPCVelControl as MPCVelControl_Part5
@@ -35,47 +20,39 @@ sys.path.remove(part5_dir)
 
 # Simulation parameters
 Ts = 0.05
-sim_time = 15.0  # May end early if fuel runs out
+sim_time = 15.0 
 H = 5.0
 
-# Initial conditions as specified
-# pos0 = [0, 0, 1], v0 = [5, 5, 10]
+# Initial conditions
 x0 = np.array([0, 0, 0, 0, 0, 0, 5, 5, 10, 0, 0, 1])
 
-# Velocity reference: vref = [0, 0, 0]
+# vref = [0, 0, 0]
 x_target = np.zeros((12,))
 
-# Rocket parameters
 rocket_params_path = os.path.join(parent_dir, "rocket.yaml")
 
-print("="*80)
-print("Deliverable 5.2 - Time-Varying Mass (Fuel Consumption)")
-print("="*80)
+print("Deliverable 5.2 Time-Varying Mass")
 
-# ============================================================================
-# Simulate Part 5.1 Controller with Time-Varying Mass
-# ============================================================================
-print("\n[1/1] Simulating with time-varying mass (fuel consumption)...")
-print("      Initial mass: 2.0 kg (50% fuel)")
-print("      Fuel rate: 0.1")
+
+print("\n Simulating with time-varying mass")
+print("Initial mass: 2.0 kg (50% fuel)")
+print("Fuel rate: 0.1")
 
 rocket = Rocket(Ts=Ts, model_params_filepath=rocket_params_path)
 mpc = MPCVelControl_Part5.new_controller(rocket, Ts, H)
 
-# IMPORTANT: Set mass and fuel_rate AFTER creating controller
-rocket.mass = 2.0  # Initial mass (1.0 kg fuel + 1.0 kg structure)
+rocket.mass = 2.0 
 rocket.fuel_rate = 0.1  # Mass decreases with thrust
 
 try:
     t_cl, x_cl, u_cl, t_ol, x_ol, u_ol, ref = rocket.simulate_control(
         mpc, sim_time, H, x0, x_target=x_target, method='nonlinear'
     )
-    print(f"      Simulation complete: {len(t_cl)} timesteps")
-    print(f"      Final time: {t_cl[-1]:.2f} seconds")
-    print(f"      Final mass: {rocket.mass:.3f} kg")
+    print(f"Final time: {t_cl[-1]:.2f} seconds")
+    print(f"Final mass: {rocket.mass - rocket.fuel_consumption:.3f} kg (nominal: {rocket.mass:.3f} kg, fuel consumed: {rocket.fuel_consumption:.3f} kg)")
 
     if len(t_cl) < int(sim_time / Ts):
-        print(f"      WARNING: Simulation ended early (fuel exhausted at t={t_cl[-1]:.2f}s)")
+        print(f"Simulation ended early (fuel exhausted at t={t_cl[-1]:.2f}s)")
         fuel_exhausted = True
     else:
         fuel_exhausted = False
@@ -84,12 +61,8 @@ except Exception as e:
     print(f"      ERROR: Simulation failed: {e}")
     sys.exit(1)
 
-# ============================================================================
-# Extract Additional Data for Analysis
-# ============================================================================
-print("\n[2/2] Extracting data for analysis...")
+print("\nData for analysis")
 
-# Re-run to collect detailed data
 rocket_analysis = Rocket(Ts=Ts, model_params_filepath=rocket_params_path)
 mpc_analysis = MPCVelControl_Part5.new_controller(rocket_analysis, Ts, H)
 rocket_analysis.mass = 2.0
@@ -97,15 +70,17 @@ rocket_analysis.fuel_rate = 0.1
 
 # Storage for analysis
 mass_history = []
+fuel_consumption_history = []
 d_hat_history = []
 x_hat_history = []
 vz_error_history = []
 altitude_history = []
 
 x_current = x0.copy()
-for i in range(len(t_cl) - 1):  # Match the simulation length
-    # Store current mass
-    mass_history.append(rocket_analysis.mass)
+for i in range(len(t_cl) - 1):  
+    # Store current effective mass
+    mass_history.append(rocket_analysis.mass - rocket_analysis.fuel_consumption)
+    fuel_consumption_history.append(rocket_analysis.fuel_consumption)
 
     # Get control input
     u, _, _, _ = mpc_analysis.get_u(0, x_current, x_target=x_target)
@@ -113,46 +88,43 @@ for i in range(len(t_cl) - 1):  # Match the simulation length
     # Store disturbance estimate and tracking error
     d_hat_history.append(mpc_analysis.mpc_zvel.d_hat[0])
     x_hat_history.append(mpc_analysis.mpc_zvel.x_hat[0])
-    vz_error_history.append(x_current[8])  # vz error (reference is 0)
+    vz_error_history.append(x_current[8])  # vz error 
     altitude_history.append(x_current[11])  # z position
 
     # Simulate one step
     x_current = rocket_analysis.simulate_step(x_current, Ts, u, method='nonlinear')
 
 # Add final values
-mass_history.append(rocket_analysis.mass)
+mass_history.append(rocket_analysis.mass - rocket_analysis.fuel_consumption)
+fuel_consumption_history.append(rocket_analysis.fuel_consumption)
 d_hat_history.append(mpc_analysis.mpc_zvel.d_hat[0])
 x_hat_history.append(mpc_analysis.mpc_zvel.x_hat[0])
 vz_error_history.append(x_current[8])
 altitude_history.append(x_current[11])
 
 mass_history = np.array(mass_history)
+fuel_consumption_history = np.array(fuel_consumption_history)
 d_hat_history = np.array(d_hat_history)
 x_hat_history = np.array(x_hat_history)
 vz_error_history = np.array(vz_error_history)
 altitude_history = np.array(altitude_history)
 t_analysis = t_cl[:len(d_hat_history)]
 
-print(f"      Collected {len(d_hat_history)} data points")
-print(f"      Initial mass: {mass_history[0]:.3f} kg")
-print(f"      Final mass: {mass_history[-1]:.3f} kg")
-print(f"      Mass consumed: {mass_history[0] - mass_history[-1]:.3f} kg")
-print(f"      Final disturbance estimate: d_hat = {d_hat_history[-1]:.6f}")
+print(f"Initial mass: {mass_history[0]:.3f} kg")
+print(f"Final mass: {mass_history[-1]:.3f} kg")
+print(f"Mass consumed: {mass_history[0] - mass_history[-1]:.3f} kg")
+print(f"Final disturbance estimate: d_hat = {d_hat_history[-1]:.6f}")
 
-# ============================================================================
-# Plotting
-# ============================================================================
-print("\n[3/3] Generating plots...")
 
 fig, axes = plt.subplots(3, 2, figsize=(14, 11))
-fig.suptitle('Deliverable 5.2: Time-Varying Mass (Fuel Consumption)\n' +
+fig.suptitle('Time-Varying Mass\n' +
              f'Initial mass=2.0 kg, fuel_rate=0.1, Final mass={mass_history[-1]:.2f} kg',
              fontsize=14, fontweight='bold')
 
 # Plot 1: Z velocity tracking
 ax = axes[0, 0]
 ax.plot(t_cl, x_cl[8, :], 'b-', linewidth=2, label='vz (actual)')
-ax.axhline(0, color='r', linestyle='--', linewidth=1, alpha=0.7, label='vz reference (0)')
+ax.axhline(0, color='r', linestyle='--', linewidth=1, alpha=0.7, label='vz reference')
 ax.set_xlabel('Time [s]')
 ax.set_ylabel('vz [m/s]')
 ax.set_title('Z-Velocity Tracking')
@@ -188,18 +160,18 @@ ax = axes[1, 1]
 ax.plot(t_analysis, d_hat_history, 'orange', linewidth=2, label='d_hat (estimated)')
 ax.set_xlabel('Time [s]')
 ax.set_ylabel('d (disturbance)')
-ax.set_title('Disturbance Estimate (Should be Time-Varying)')
+ax.set_title('Disturbance Estimate')
 ax.legend()
 ax.grid(True, alpha=0.3)
 
 # Plot 5: Control input (Pavg)
 ax = axes[2, 0]
-ax.plot(t_cl[:-1], u_cl[2, :], 'b-', linewidth=2, label='Pavg (throttle)')
+ax.plot(t_cl[:-1], u_cl[2, :], 'b-', linewidth=2, label='Pavg')
 ax.axhline(40, color='r', linestyle='--', linewidth=1, alpha=0.5)
 ax.axhline(80, color='r', linestyle='--', linewidth=1, alpha=0.5)
 ax.set_xlabel('Time [s]')
 ax.set_ylabel('Pavg [%]')
-ax.set_title('Z-Control Input (Throttle)')
+ax.set_title('Z-Control Input')
 ax.legend()
 ax.grid(True, alpha=0.3)
 if fuel_exhausted:
@@ -220,26 +192,6 @@ output_path = os.path.join(script_dir, 'deliverable_5_2_results.png')
 plt.savefig(output_path, dpi=150, bbox_inches='tight')
 print(f"      Saved plot: {output_path}")
 
-# ============================================================================
-# Analysis and Observations
-# ============================================================================
-print("\n" + "="*80)
-print("ANALYSIS AND OBSERVATIONS")
-print("="*80)
-
-# 1. Early tracking offset
-print("\n1. Early Tracking Offset (First Few Seconds):")
-early_time_idx = int(3.0 / Ts)  # First 3 seconds
-early_vz_error = np.mean(np.abs(vz_error_history[:early_time_idx]))
-print(f"   - Mean |vz error| in first 3s: {early_vz_error:.3f} m/s")
-print(f"   - Reason: Constant disturbance estimator cannot adapt fast enough")
-print(f"     to the CHANGING mass (mass varies from {mass_history[0]:.2f} to {mass_history[early_time_idx]:.2f} kg)")
-
-# 2. Behaviors along simulation
-print("\n2. Different Behaviors Along Simulation:")
-print("   - Phase 1 (0-5s): Large tracking error as estimator adapts from initial guess")
-print(f"   - Phase 2 (5-10s): Estimator chases the time-varying disturbance")
-print(f"   - Phase 3 (10-15s): Disturbance grows rapidly as mass approaches minimum")
 
 # 3. Compute statistics for different phases
 phase1_idx = int(5.0 / Ts)
@@ -286,16 +238,4 @@ print("  - Augment state with disturbance AND its rate: [x; d; d_dot]")
 print("  - Or: Use online mass estimation and adaptive MPC")
 print("="*80)
 
-# Save data for report
-data_path = os.path.join(script_dir, 'deliverable_5_2_data.npz')
-np.savez(data_path,
-         t=t_cl,
-         x=x_cl,
-         u=u_cl,
-         mass_history=mass_history,
-         d_hat_history=d_hat_history,
-         vz_error_history=vz_error_history,
-         t_analysis=t_analysis,
-         Ts=Ts)
-print(f"\nData saved to: {data_path}")
-print("Plot saved. Open 'deliverable_5_2_results.png' to view results.")
+print("\nPlot saved. Open 'deliverable_5_2_results.png' to view results.")

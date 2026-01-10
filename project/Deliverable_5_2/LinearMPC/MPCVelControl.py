@@ -7,14 +7,13 @@ from LinearMPC.MPCControl_roll import MPCControl_roll
 
 class MPCVelControl:
     """
-    Wrapper class for all 4 MPC velocity/angle tracking controllers (Deliverable 3.2).
+    Wrapper class for all 4 MPC velocity/angle tracking controllers
 
     Combines:
     - MPCControl_xvel: Tracks vx via d2
     - MPCControl_yvel: Tracks vy via d1
     - MPCControl_zvel: Tracks vz via Pavg
-    - MPCControl_roll: Tracks gamma (roll angle) via Pdiff
-
+    - MPCControl_roll: Tracks gamma via Pdiff
     Full state vector: x = [wx, wy, wz, alpha, beta, gamma, vx, vy, vz, x, y, z]
     Full input vector: u = [d1, d2, Pavg, Pdiff]
     """
@@ -74,7 +73,7 @@ class MPCVelControl:
         u_target: np.ndarray = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get control input from all 4 MPC tracking controllers (Deliverable 3.2).
+        Get control input from all 4 MPC tracking controllers
 
         Each controller now solves a two-stage problem:
         1. Compute steady-state target (x_ref, u_ref) from output reference

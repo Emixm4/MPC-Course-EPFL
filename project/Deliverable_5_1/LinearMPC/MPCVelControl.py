@@ -7,14 +7,13 @@ from LinearMPC.MPCControl_roll import MPCControl_roll
 
 class MPCVelControl:
     """
-    Wrapper class for all 4 MPC velocity/angle tracking controllers (Deliverable 3.2).
+    Wrapper class for all 4 MPC velocity/angle tracking controllers
 
     Combines:
     - MPCControl_xvel: Tracks vx via d2
     - MPCControl_yvel: Tracks vy via d1
     - MPCControl_zvel: Tracks vz via Pavg
     - MPCControl_roll: Tracks gamma (roll angle) via Pdiff
-
     Full state vector: x = [wx, wy, wz, alpha, beta, gamma, vx, vy, vz, x, y, z]
     Full input vector: u = [d1, d2, Pavg, Pdiff]
     """
@@ -74,8 +73,6 @@ class MPCVelControl:
         u_target: np.ndarray = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get control input from all 4 MPC tracking controllers (Deliverable 3.2).
-
         Each controller now solves a two-stage problem:
         1. Compute steady-state target (x_ref, u_ref) from output reference
         2. Solve MPC to track the computed target
@@ -85,7 +82,7 @@ class MPCVelControl:
             x: Current full state [wx, wy, wz, alpha, beta, gamma, vx, vy, vz, x, y, z]
             x_target: Target full state (optional, for tracking)
                       Velocities vx, vy, vz and roll angle gamma are extracted as references
-            u_target: Target input (optional, not used in tracking)
+            u_target: Target input
 
         Returns:
             u: Control input [d1, d2, Pavg, Pdiff]
@@ -100,12 +97,9 @@ class MPCVelControl:
         u_ol = np.zeros((4, N))
         t_ol = np.linspace(t, t + N * self.mpc_xvel.Ts, N + 1)
 
-        # Safety margin for numerical precision (0.1%)
+        # Safety margin (0.1%)
         eps = 1e-3
 
-        # Extract delta states (x - xs) and output references for each controller
-        # Y velocity controller: [wx, alpha, vy] -> d1
-        # Controlled output: vy (index 7 in full state)
         x0_yvel = x[self.mpc_yvel.x_ids] - self.mpc_yvel.xs
         ref_yvel = None
         if x_target is not None:
@@ -165,7 +159,7 @@ class MPCVelControl:
 
     def estimate_parameters(self, x: np.ndarray, u: np.ndarray) -> None:
         """
-        Placeholder for parameter estimation (used in Part 5).
+        Placeholder for parameter estimation.
 
         Args:
             x: State vector

@@ -1,13 +1,13 @@
 import cvxpy as cp
 import numpy as np
 from control import dlqr
-# from mpt4py import Polyhedron  # Not needed for Part 5.1 (no terminal sets)
-# from mpt4py.base import HData  # Not needed for Part 5.1 (no terminal sets)
+# from mpt4py import Polyhedron # Not needed for Part 5.1 
+# from mpt4py.base import HData  # Not needed for Part 5.1
 from scipy.signal import cont2discrete
 
 
 class MPCControl_base:
-    """Base class for MPC controllers for tracking (Deliverable 3.2)"""
+    """Base class for MPC controllers for tracking"""
 
     # To be defined in subclasses
     x_ids: np.ndarray  # State indices this controller uses
@@ -21,7 +21,7 @@ class MPCControl_base:
     us: np.ndarray
     nx: int
     nu: int
-    ny: int  # Number of outputs
+    ny: int
     Ts: float
     H: float
     N: int
@@ -29,7 +29,7 @@ class MPCControl_base:
     # MPC components
     Q: np.ndarray  # State cost
     R: np.ndarray  # Input cost
-    # NOTE: No terminal set for tracking (Deliverable 3.2)
+   
 
     # Optimization problems
     ocp: cp.Problem  # Main MPC controller
@@ -82,7 +82,6 @@ class MPCControl_base:
     def _setup_controller(self) -> None:
         """
         Setup the MPC optimization problem for tracking.
-        No terminal set constraint for Deliverable 3.2.
         """
         # Get tuning parameters and constraints from subclass
         Q, R = self._get_cost_matrices()
@@ -108,8 +107,6 @@ class MPCControl_base:
             dx = self.x_var[:, k] - self.x_ref_param
             du = self.u_var[:, k] - self.u_ref_param
             cost += cp.quad_form(dx, Q) + cp.quad_form(du, R)
-
-        # NOTE: No terminal cost or terminal set for tracking (Deliverable 3.2)
 
         # Build constraints
         constraints = []
@@ -137,12 +134,12 @@ class MPCControl_base:
 
     def _setup_steady_state_target(self) -> None:
         """
-        Setup steady-state target optimization problem.
-        Given a reference output, solves for equilibrium (xs, us) such that:
+        Sstup steady-state target optimization problem.
+        given a reference output, solvs for equilibrium :
         - xs = A*xs + B*us (equilibrium)
-        - C*xs = ref (output matches reference)
-        - Constraints are satisfied
-        - Minimize input effort: us'*us
+        - C*xs = ref (output matches ref)
+        - constraints are satisfied
+        - Min. input effort: us'*us
         """
         _, _, u_min, u_max = self._get_constraints()
 
@@ -157,13 +154,11 @@ class MPCControl_base:
         # Cost: minimize input effort
         cost = cp.quad_form(self.us_var, np.eye(self.nu))
 
-        # Constraints
         constraints = []
 
-        # Equilibrium: xs = A*xs + B*us => (I - A)*xs = B*us
         constraints.append(self.xs_var == self.A @ self.xs_var + self.B @ self.us_var)
 
-        # Output matches reference: C*xs = ref
+        # Output matches ref: C*xs = ref
         constraints.append(self.C @ self.xs_var == self.ref_param)
 
         # Input constraints
@@ -180,10 +175,6 @@ class MPCControl_base:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Solve MPC problem and return optimal control input.
-
-        For Deliverable 3.2 tracking:
-        1. If ref is given, solve steady-state target problem to get (x_ref, u_ref)
-        2. Solve MPC to track the computed (x_ref, u_ref)
 
         Args:
             x0: Current state (in delta coordinates relative to xs)
@@ -229,7 +220,7 @@ class MPCControl_base:
             self.ocp.solve(solver=cp.OSQP, warm_start=True, verbose=False)
         except Exception as e:
             print(f"MPC solve failed: {e}")
-            # Return zero control on failure
+            # Return zero on failure
             return (
                 np.zeros(self.nu),
                 np.zeros((self.nx, self.N + 1)),

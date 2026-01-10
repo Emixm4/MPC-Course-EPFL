@@ -5,13 +5,9 @@ from LinearMPC.MPCControl_base import MPCControl_base
 class MPCControl_roll(MPCControl_base):
     """
     MPC controller for roll angle subsystem.
-
     States: [wz, gamma]
     Input: [Pdiff]
 
-    Constraints:
-    - No constraints on states (can spin freely)
-    - -20 <= Pdiff <= 20 (differential throttle limits)
     """
 
     # State indices: wz=2, gamma=5
@@ -39,22 +35,16 @@ class MPCControl_roll(MPCControl_base):
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Constraint bounds for roll subsystem.
-
         States: [wz, gamma]
         - No constraints (can spin freely)
-
-        Inputs: [Pdiff]
-        - -20 <= Pdiff <= 20 (percentage)
         """
-        # State constraints - in delta coordinates (no limits)
+        # State constraints, in delta coordinates
         x_min = np.array([-np.inf,   # wz
                           -np.inf])  # gamma
         x_max = np.array([np.inf,    # wz
                           np.inf])   # gamma
 
-        # Input constraints - in delta coordinates
-        # Absolute: -20 <= Pdiff <= 20 (percentage)
-        # Delta: -20 - us[Pdiff] <= delta_Pdiff <= 20 - us[Pdiff]
+        # Input constraints, in delta coordinates
         u_min = np.array([-20.0]) - self.us
         u_max = np.array([20.0]) - self.us
 
@@ -62,7 +52,6 @@ class MPCControl_roll(MPCControl_base):
 
     def _get_output_matrix(self) -> np.ndarray:
         """
-        Output matrix C for roll controller.
-        Selects gamma (roll angle) from state [wz, gamma].
+        Selects gamma from state
         """
-        return np.array([[0.0, 1.0]])  # Output is gamma (2nd state)
+        return np.array([[0.0, 1.0]])  # gamma 

@@ -5,7 +5,7 @@ import cvxpy as cp
 
 class MPCControl_zvel(MPCControl_base):
     """
-    MPC controller for Z (vertical) velocity subsystem with offset-free tracking.
+    MPC controller for z velocity subsystem with offset-free tracking.
 
     Augmented system with disturbance estimation:
     - States: [vz, d] where d is estimated disturbance
@@ -13,17 +13,17 @@ class MPCControl_zvel(MPCControl_base):
     - Dynamics: x+ = Ax + Bu + Bd, with d estimated via Kalman filter
 
     Constraints:
-    - z >= 0 (don't go underground!)
-    - 40 <= Pavg <= 80 (safety limits on throttle)
+    - z >= 0
+    - 40 <= Pavg <= 80
     """
 
     # State indices: vz=8
-    x_ids = np.array([8])  # vz only (no position for velocity controller!)
+    x_ids = np.array([8])
     u_ids = np.array([2])  # Pavg
 
     # Augmented state estimator variables
-    x_hat: np.ndarray  # State estimate [vz]
-    d_hat: np.ndarray  # Disturbance estimate [d]
+    x_hat: np.ndarray 
+    d_hat: np.ndarray
 
     # Kalman filter covariance
     P: np.ndarray  # Error covariance matrix
@@ -31,10 +31,6 @@ class MPCControl_zvel(MPCControl_base):
     def _get_cost_matrices(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Cost matrices for Z velocity controller.
-
-        Tuning:
-        - Q: Penalize velocity error
-        - R: Penalize throttle usage (keep it smooth)
         """
         Q = np.diag([10.0])  # vz cost
         R = np.diag([0.1])   # Pavg cost (small to allow aggressive control)
@@ -43,16 +39,14 @@ class MPCControl_zvel(MPCControl_base):
     def _get_constraints(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Constraint bounds for Z subsystem.
-
         States: [vz]
-        - No constraints on vz
 
         Inputs: [Pavg]
         - 40 <= Pavg <= 80 (percentage)
         """
-        # State constraints (vz) - in delta coordinates
-        x_min = np.array([-np.inf])  # No lower bound on downward velocity
-        x_max = np.array([np.inf])   # No upper bound on upward velocity
+
+        x_min = np.array([-np.inf])  
+        x_max = np.array([np.inf])
 
         # Input constraints (Pavg) - in delta coordinates
         # Absolute: 40 <= Pavg <= 80
@@ -64,19 +58,18 @@ class MPCControl_zvel(MPCControl_base):
 
     def _get_output_matrix(self) -> np.ndarray:
         """
-        Output matrix C for Z velocity controller.
         Selects vz from state [vz].
         """
-        return np.array([[1.0]])  # Output is vz
+        return np.array([[1.0]]) # vz
 
     def __init__(self, A: np.ndarray, B: np.ndarray, xs: np.ndarray, us: np.ndarray, Ts: float, H: float):
         """Initialize offset-free MPC with disturbance estimator."""
-        # Call parent constructor
+
         super().__init__(A, B, xs, us, Ts, H)
 
         # Initialize state and disturbance estimates
-        self.x_hat = np.zeros(self.nx)  # Initial state estimate
-        self.d_hat = np.zeros(self.nx)  # Initial disturbance estimate
+        self.x_hat = np.zeros(self.nx) 
+        self.d_hat = np.zeros(self.nx)
 
         # Initialize Kalman filter error covariance (augmented: [x; d])
         self.P = np.eye(2 * self.nx) * 1.0
@@ -113,15 +106,13 @@ class MPCControl_zvel(MPCControl_base):
             du = self.u_var[:, k] - self.u_ref_param
             cost += cp.quad_form(dx, Q) + cp.quad_form(du, R)
 
-        # NOTE: No terminal cost or terminal set for offset-free tracking (Part 5)
-
         # Build constraints with disturbance compensation
         constraints = []
 
         # Initial condition
         constraints.append(self.x_var[:, 0] == self.x0_param)
 
-        # Dynamics with disturbance: x+ = Ax + Bu + Bd
+        # Dynamics with disturbance
         for k in range(self.N):
             constraints.append(
                 self.x_var[:, k + 1] == self.A @ self.x_var[:, k] +
@@ -143,11 +134,6 @@ class MPCControl_zvel(MPCControl_base):
         """
         Kalman filter update for augmented system [x; d].
 
-        Augmented dynamics:
-        [x+; d+] = [A, B; 0, I][x; d] + [B; 0]u + [w_x; w_d]
-        y = [C, 0][x; d] + v
-
-        where w_x, w_d are process noise, v is measurement noise.
         """
         # Augmented system matrices
         nx = self.nx
@@ -157,9 +143,9 @@ class MPCControl_zvel(MPCControl_base):
                          [np.zeros((self.nu, nx)).T]])
         C_aug = np.block([[self.C, np.zeros((self.ny, nx))]])
 
-        # Process and measurement noise covariances (tuning parameters)
+        # Process and measurement noise covariances
         Q_process = np.eye(2 * nx) * 0.01  # Process noise covariance
-        Q_process[nx:, nx:] *= 0.001  # Smaller noise on disturbance (it's assumed constant)
+        Q_process[nx:, nx:] *= 0.001  # Smaller nois on disturbance
         R_meas = np.eye(self.ny) * 0.1  # Measurement noise covariance
 
         # Prediction step
@@ -185,7 +171,7 @@ class MPCControl_zvel(MPCControl_base):
         Solve offset-free MPC with disturbance estimation.
 
         Args:
-            x0: Current measured state (in delta coordinates)
+            x0: Current measured state
             ref: Reference output
 
         Returns:
@@ -194,12 +180,11 @@ class MPCControl_zvel(MPCControl_base):
             u_traj: Predicted input trajectory
         """
         # Run Kalman filter to update state and disturbance estimates
-        # Note: x0 is the measurement in delta coordinates
         y_meas = self.C @ x0  # Measured output
         u_prev = self.u_ref_param.value if hasattr(self.u_ref_param, 'value') else np.zeros(self.nu)
         self._kalman_update(y_meas, u_prev)
 
-        # Set initial state to estimated state (in delta coordinates)
+        # Set initial state to estimated state
         self.x0_param.value = self.x_hat
 
         # Set estimated disturbance
@@ -218,9 +203,7 @@ class MPCControl_zvel(MPCControl_base):
                 self.u_ref_param.value = np.zeros(self.nu)
             else:
                 if self.target_ocp.status in ["optimal", "optimal_inaccurate"]:
-                    # Adjust target to account for disturbance
-                    # At steady-state: 0 = (A-I)xs + B*us + B*d
-                    # So we need: xs = (I-A)^{-1} * B * (us + d)
+                    # Adjust target for disturbance
                     self.x_ref_param.value = self.xs_var.value - self.d_hat
                     self.u_ref_param.value = self.us_var.value
                 else:
@@ -228,11 +211,10 @@ class MPCControl_zvel(MPCControl_base):
                     self.x_ref_param.value = np.zeros(self.nx)
                     self.u_ref_param.value = np.zeros(self.nu)
         else:
-            # No reference given - regulate to zero accounting for disturbance
             self.x_ref_param.value = -self.d_hat  # Compensate for disturbance
             self.u_ref_param.value = np.zeros(self.nu)
 
-        # Solve MPC problem
+        # Solve pb
         try:
             self.ocp.solve(solver=cp.OSQP, warm_start=True, verbose=False)
         except Exception as e:
