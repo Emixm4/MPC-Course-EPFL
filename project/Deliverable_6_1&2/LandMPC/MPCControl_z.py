@@ -142,9 +142,12 @@ class MPCControl_z(MPCControl_base):
         print(f"Disturbance bias w_bar = {self.w_bar} (will be compensated via feedforward)")
         
         # ===== STEP 3: Cost matrices for MPC =====
-        Q = np.diag([5.0, 30.0])
-        R = np.diag([3.0])
-        R_delta = np.diag([5.0])
+        # Q: [vz, z] - balance between overshoot control and tracking
+        # Higher vz penalty reduces overshoot, higher z penalty improves tracking
+        # R_delta: rate penalty to reduce oscillations
+        Q = np.diag([50.0, 100.0])   # High vz penalty (50) to reduce overshoot, high z (100) for tracking
+        R = np.diag([0.5])           # Lower R allows more aggressive control
+        R_delta = np.diag([2.0])     # Moderate rate penalty
         
         self.Q = Q
         self.R = R
@@ -155,7 +158,7 @@ class MPCControl_z(MPCControl_base):
         except:
             self.P = 10 * Q
         
-        self.Xf_bounds = np.array([[3.0], [3.0]])
+        self.Xf_bounds = np.array([[15.0], [15.0]])  # Very relaxed for large initial deviations
         
         # ===== STEP 4: Setup CVXPY optimization =====
         self.x_var = cp.Variable((self.nx, self.N + 1))
@@ -212,7 +215,7 @@ class MPCControl_z(MPCControl_base):
         
         # Cap tightening to preserve control authority
         # Use smaller cap to allow more aggressive control when needed
-        u_margin = min(u_margin_theoretical, 2.0)  # Reduced from 5.0 to 2.0
+        u_margin = min(u_margin_theoretical, 1.5)  # Further reduced for more control authority
         
         u_min_tight = u_min + u_margin
         u_max_tight = u_max - u_margin
@@ -290,15 +293,18 @@ class MPCControl_z(MPCControl_base):
         self.u_prev_param.value = self._u_prev
 
         # Emergency mode: use max thrust when falling too fast or altitude critical
-        # These thresholds ensure we never crash even with worst-case disturbance
-        emergency_vz_threshold = -2.0  # m/s 
-        emergency_z_threshold = 0.5    # m above ground
-        emergency_z_critical = z_current - self.xs[1]  # Distance to target (delta)
+        # CRITICAL: With w=-15 (extreme downward disturbance), we need earlier intervention
+        # The disturbance can cause ~0.5m drop before control catches up
+        emergency_vz_threshold = -2.5  # m/s - trigger earlier to prevent crash
+        emergency_z_threshold = 0.8    # m above ground - higher margin for safety
         
-        # Also enter emergency if close to target but still falling significantly
-        close_to_target = abs(emergency_z_critical) < 1.5 and vz_current < -0.5
+        # Danger zone: approaching ground with any significant downward velocity
+        near_ground_danger = z_current < 1.5 and vz_current < -1.0
         
-        if vz_current < emergency_vz_threshold or z_current < emergency_z_threshold or close_to_target:
+        # Also emergency if altitude is low and we're not climbing
+        low_altitude_risk = z_current < 0.5 and vz_current < 0.5
+        
+        if vz_current < emergency_vz_threshold or z_current < emergency_z_threshold or near_ground_danger or low_altitude_risk:
             # Emergency: apply maximum thrust
             u0 = np.array([80.0])  # Max thrust
             self._u_prev = u0 - self.us  # Update previous control
@@ -346,21 +352,38 @@ class MPCControl_z(MPCControl_base):
         error = x0_delta - z_traj[:, 0]
         u0_delta = v0 + self.K @ error
         
-        # ADAPTIVE DISTURBANCE COMPENSATION
-        # Track position error and estimate persistent disturbance
+        # ADAPTIVE DISTURBANCE COMPENSATION (for robust MPC with disturbances)
+        # The integral action compensates for persistent biased disturbances
+        # NOTE: Only needed when there's actual disturbance (w != 0)
         if not hasattr(self, '_integral_error'):
             self._integral_error = 0.0
             self._last_z_error = 0.0
+            self._time_at_target = 0.0
         
-        # Position error relative to target
-        z_error = x0_delta[1] - self.x_target_param.value[1]
+        # Position error relative to target (z=3 in absolute coords)
+        z_error = x0_delta[1] - self.x_target_param.value[1]  # Should be ~0 at target
         
-        # Only integrate when close to target and not in transient
-        if abs(z_error) < 2.0 and abs(vz_current) < 1.0:
-            # Anti-windup: limit integral
-            Ki = 0.5  # Integral gain
-            self._integral_error += Ki * z_error * self.Ts
-            self._integral_error = np.clip(self._integral_error, -5.0, 5.0)
+        # Integral action strategy - ONLY when truly settled near target
+        # This prevents integral from interfering with normal descent
+        z_target_absolute = self.xs[1]  # z=3m
+        
+        # Only activate integral when:
+        # 1. Close to target (within 1.5m) - relaxed for model mismatch
+        # 2. Velocity is settling (not in fast transient)
+        # 3. This indicates we're stuck due to disturbance or model error
+        near_target = abs(z_error) < 1.5 and abs(vz_current) < 0.5
+        
+        if near_target:
+            self._time_at_target += self.Ts
+            # Only integrate after 0.5 second at target (fast response)
+            if self._time_at_target > 0.5:
+                Ki = 3.0  # Higher integral gain for faster correction
+                self._integral_error += Ki * z_error * self.Ts
+                self._integral_error = np.clip(self._integral_error, -20.0, 20.0)
+        else:
+            # Reset counter and slowly decay integral when not at target
+            self._time_at_target = 0.0
+            self._integral_error *= 0.95
         
         # Apply integral correction
         u0_delta = u0_delta - self._integral_error
