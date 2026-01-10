@@ -1,0 +1,64 @@
+================================================================================
+CONTROLLER COMPARISON REPORT: LINEAR MPC (6.2) vs NMPC (7.1)
+================================================================================
+
+Test Scenario: Landing from (3, 2, 10, 30°) to (1, 0, 3, 0°)
+Simulation Time: 15.00 seconds
+
+--------------------------------------------------------------------------------
+FINAL STATE ACCURACY
+--------------------------------------------------------------------------------
+Metric                                   Linear MPC                 NMPC
+------------------------------ -------------------- --------------------
+Position Error [cm]                           0.055                0.000
+Velocity Error [cm/s]                         0.023                0.000
+Roll Angle Error [°]                          0.000                0.000
+
+--------------------------------------------------------------------------------
+SETTLING TIME PERFORMANCE
+--------------------------------------------------------------------------------
+Settling Time [s]                              5.10                 3.70
+Requirement Met (≤4s)?                         NO ✗                YES ✓
+
+--------------------------------------------------------------------------------
+CONSTRAINT SATISFACTION
+--------------------------------------------------------------------------------
+Constraint                               Linear MPC                 NMPC
+------------------------------ -------------------- --------------------
+Ground (z≥0)                                 PASS ✓               PASS ✓
+  Min altitude [m]                            2.982                2.680
+Beta (|β|≤80°)                               PASS ✓               PASS ✓
+  Max |β| [°]                                 24.59                41.69
+Servos (|δ|≤15°)                             PASS ✓               PASS ✓
+  Max |δ1| [°]                                14.50                14.90
+  Max |δ2| [°]                                14.50                14.90
+Throttle (40-80%)                            PASS ✓               FAIL ✗
+  Min Pavg [%]                                41.49                40.00
+  Max Pavg [%]                                80.00                80.00
+Pdiff (|Pdiff|≤20)                           PASS ✓               PASS ✓
+  Max |Pdiff| [%]                              4.95                20.00
+
+--------------------------------------------------------------------------------
+COMPUTATIONAL PERFORMANCE
+--------------------------------------------------------------------------------
+Metric                                   Linear MPC                 NMPC
+------------------------------ -------------------- --------------------
+Total Sim Time [s]                             7.72                28.04
+Avg Time/Step [ms]                            25.66                93.17
+Control Effort                             49832.71             52606.35
+Real-time @ 20Hz?                             YES ✓                 NO ✗
+
+================================================================================
+SUMMARY
+================================================================================
+
+Best Accuracy:        NMPC
+Best Computational:   Linear MPC
+Best Settling Time:   NMPC
+
+RECOMMENDATIONS:
+- Linear MPC: Best for real-time applications, guaranteed stability
+- NMPC: Best for accuracy, large maneuvers, coupled dynamics
+- Hybrid: Use NMPC for planning, Linear MPC for tracking
+
+================================================================================

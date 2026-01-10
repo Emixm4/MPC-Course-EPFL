@@ -23,7 +23,7 @@
 \maketitle
 
 \begin{abstract}
-This deliverable implements a Nonlinear Model Predictive Control (NMPC) controller using CasADi for rocket landing. Unlike the decomposed linear MPC approach in Part 6, this controller handles the full 12-state nonlinear dynamics in a single unified optimization. The NMPC successfully lands the rocket from $(3, 2, 10, 30°)$ to $(1, 0, 3, 0°)$ with final position error of $< 2$ cm and settling time meeting the 4-second requirement.
+This deliverable implements a Nonlinear MPC (NMPC) controller using CasADi for rocket landing. The controller handles the full 12-state nonlinear dynamics in a unified optimization. NMPC successfully lands the rocket from $(3, 2, 10, 30°)$ to $(1, 0, 3, 0°)$ with $< 2$ cm error and settling time $< 4$ seconds.
 \end{abstract}
 
 \section{Controller Design}
@@ -42,333 +42,114 @@ The NMPC controller optimizes over the full 12-state rocket dynamics without dec
 & + (\mathbf{x}_N - \mathbf{x}_s)^T \mathbf{P} (\mathbf{x}_N - \mathbf{x}_s) \notag
 \end{align}
 
-\textbf{Subject to:}
-\begin{itemize}[noitemsep]
-\item Dynamics: $\mathbf{x}_{k+1} = f(\mathbf{x}_k, \mathbf{u}_k)$ (RK4 integration)
-\item Ground constraint: $z_k \geq 0$
-\item Singularity avoidance: $|\beta_k| \leq 80°$
-\item Servo limits: $|\delta_1|, |\delta_2| \leq 0.26$ rad $(15°)$
-\item Throttle bounds: $40\% \leq P_{\text{avg}} \leq 80\%$
-\item Differential throttle: $|P_{\text{diff}}| \leq 20\%$
-\end{itemize}
+\textbf{Subject to:} RK4-integrated dynamics $\mathbf{x}_{k+1} = f(\mathbf{x}_k, \mathbf{u}_k)$, ground safety $z_k \geq 0$, singularity avoidance $|\beta_k| \leq 80°$, servo limits $|\delta_1|, |\delta_2| \leq 0.26$ rad, throttle bounds $40\% \leq P_{\text{avg}} \leq 80\%$, and differential throttle $|P_{\text{diff}}| \leq 20\%$.
 
 \subsection{Key Design Decisions}
 
-\textbf{1. Integration Method:} 4th-order Runge-Kutta (RK4) instead of Euler
-\begin{itemize}[noitemsep]
-\item Better accuracy for nonlinear dynamics
-\item Reduces discretization error over long horizon
-\end{itemize}
+\textbf{1. Integration Method:} 4th-order Runge-Kutta (RK4) provides better accuracy for nonlinear dynamics and reduces discretization error over the long horizon.
 
-\textbf{2. Terminal Cost (Hint 3 Implementation):}
-\begin{itemize}[noitemsep]
-\item Linearize system around trim point: $(A, B) = \nabla f(\mathbf{x}_s, \mathbf{u}_s)$
-\item Discretize: $(A_d, B_d) = \text{c2d}(A, B, T_s)$
-\item Solve DARE: $\mathbf{P} = \text{dare}(A_d, B_d, \mathbf{Q}, \mathbf{R})$
-\item Computed once in initialization (as suggested in hint)
-\item Provides theoretical basis for terminal penalty
-\end{itemize}
+\textbf{2. Terminal Cost (Hint 3 Implementation):} The system is linearized around the trim point $(A, B) = \nabla f(\mathbf{x}_s, \mathbf{u}_s)$, discretized via $(A_d, B_d) = \text{c2d}(A, B, T_s)$, and the DARE solution $\mathbf{P} = \text{dare}(A_d, B_d, \mathbf{Q}, \mathbf{R})$ is computed once during initialization to provide a theoretical basis for the terminal penalty.
 
 \textbf{3. Cost Tuning:}
 \begin{align*}
 \mathbf{Q} &= \text{diag}([1, 1, 1, \quad 20, 20, 20, \quad 10, 10, 10, \quad 50, 50, 100]) \\
 \mathbf{R} &= \text{diag}([0.01, 0.01, 0.01, 0.01])
 \end{align*}
-Rationale:
-\begin{itemize}[noitemsep]
-\item High $Q_z = 100$: Altitude most critical for safe landing
-\item Moderate $Q_{\alpha,\beta,\gamma} = 20$: Penalize large tilts
-\item Low $R = 0.01$: Allow aggressive control
-\end{itemize}
+High altitude weight $Q_z = 100$ prioritizes safe landing, moderate angle weights $Q_{\alpha,\beta,\gamma} = 20$ penalize large tilts, and low input penalty $R = 0.01$ allows aggressive control.
 
-\textbf{4. Horizon Selection:} $H = 4.0$ s (80 steps @ 20 Hz)
-\begin{itemize}[noitemsep]
-\item Longer than linear MPC due to:
-  \begin{itemize}[noitemsep]
-  \item Large maneuver: 7 m position change + 30° rotation
-  \item Coupled dynamics require longer preview
-  \end{itemize}
-\item Trade-off: Better performance vs. computation time
-\end{itemize}
+\textbf{4. Horizon Selection:} $H = 4.0$ s (80 steps @ 20 Hz) provides sufficient preview for the large maneuver (7 m displacement + 30° rotation) while balancing performance and computation time.
 
-\textbf{5. Solver Configuration:}
-\begin{itemize}[noitemsep]
-\item Solver: IPOPT (interior-point method)
-\item Max iterations: 500
-\item Tolerance: $10^{-5}$
-\item Option \texttt{'expand': True} (Hint 2) for faster NLP evaluation
-\end{itemize}
+\textbf{5. Solver:} IPOPT with \texttt{'expand':True}, max iterations 500, tolerance $10^{-5}$
 
 \section{Simulation Results}
 
-\subsection{Question 1: Landing Success}
+\subsection{Open-Loop and Closed-Loop Performance}
 
-\textbf{Test Scenario:} Initial state $(3, 2, 10, 30°)$ → Target $(1, 0, 3, 0°)$
+The controller was tested from initial state $(3, 2, 10, 30°)$ to target $(1, 0, 3, 0°)$.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures_deliverable_7_1/01_open_loop_trajectory.png}
+\caption{NMPC open-loop optimal trajectory from initial state}
+\label{fig:open_loop}
+\end{figure}
+
+\subsection{Landing Success}
+
+\textbf{Result:} The rocket successfully lands with final position error of \textbf{1.92 cm} from target $(1, 0, 3)$ m.
+
+\subsection{Comparison with Linear MPC}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{comparison_figures/position_comparison.png}
+\caption{Position trajectories}
+\label{fig:position}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{comparison_figures/attitude_comparison.png}
+\caption{Attitude evolution}
+\label{fig:attitude}
+\end{subfigure}
+\caption{Trajectory comparison: Linear MPC (blue) vs NMPC (red)}
+\label{fig:comparison}
+\end{figure}
 
 \begin{table}[H]
 \centering
-\begin{tabular}{@{}lcc@{}}
+\begin{tabular}{lcc}
 \toprule
-\textbf{Variable} & \textbf{Target} & \textbf{Final Value} \\ \midrule
-Position $x$ (m) & 1.00 & $\sim 1.00$ \\
-Position $y$ (m) & 0.00 & $\sim 0.00$ \\
-Position $z$ (m) & 3.00 & $\sim 3.00$ \\
-Roll angle $\gamma$ (deg) & 0.00 & $\sim 0.00$ \\
+Metric & Linear MPC (6.2) & NMPC (7.1) \\
 \midrule
-\textbf{Total Error} & --- & \textbf{< 2 cm} \\ \bottomrule
+Final Position Error & \textbf{0.06 cm} & 1.92 cm \\
+Settling Time (4s req.) & 5.10 s (FAIL) & \textbf{$<$ 4 s (PASS)} \\
+Computation Time/Step & \textbf{25.64 ms} & 50-200 ms \\
+Constraint Violations & 0 & 0 \\
+\bottomrule
 \end{tabular}
-\caption{Final landing accuracy (NMPC controller)}
-\label{tab:landing}
-\end{table}
-
-\textbf{Answer:} \textcolor{blue}{\textbf{Yes}}, the NMPC successfully lands the rocket at the target position with excellent accuracy (< 2 cm error). All velocities and angular rates converge to zero.
-
-\subsection{Question 2: Comparison with Linear MPC (Part 6)}
-
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{@{}p{4cm}p{5cm}p{5cm}@{}}
-\toprule
-\textbf{Aspect} & \textbf{Linear MPC (Part 6.2)} & \textbf{NMPC (Part 7.1)} \\ \midrule
-Model Accuracy & Approximate (linearization) & Exact (full nonlinear) \\
-State Space Coverage & Limited (near trim) & Global (entire space) \\
-Constraint Handling & Tube MPC (z only) & Direct (all states) \\
-Coupling Effects & Ignored (4 subsystems) & Captured (unified) \\
-Computational Cost & Low ($\sim$1-5 ms/iter) & High ($\sim$50-200 ms/iter) \\
-Implementation & Moderate (4 controllers) & Lower (single controller) \\
-Tuning Difficulty & Moderate (4 param sets) & Easier (single cost) \\
-Settling Time & $\sim$3-4 seconds & $\sim$3-4 seconds \\
-Robustness (dist.) & Good (tube MPC for z) & Moderate (no explicit) \\
-Robustness (model) & Poor (linearization) & Excellent (no linear.) \\
-Real-time Feasibility & Excellent (fast) & Challenging (slow) \\
-Theoretical Guarantees & Strong (recursive feas.) & Weak (local optimal) \\ \bottomrule
-\end{tabular}
-\caption{Comprehensive comparison: Linear MPC vs. NMPC}
+\caption{Performance comparison: Linear MPC vs NMPC}
 \label{tab:comparison}
 \end{table}
 
-\textbf{Key Differences:}
-\begin{enumerate}[noitemsep]
-\item \textbf{Accuracy:} NMPC uses exact nonlinear dynamics, valid everywhere. Linear MPC limited to vicinity of trim point.
-\item \textbf{Architecture:} NMPC is unified (single optimization), Linear MPC uses 4 decoupled subsystems.
-\item \textbf{Computational Cost:} NMPC is 10-50× slower due to nonconvex optimization.
-\item \textbf{Robustness Trade-off:} Linear MPC has explicit tube MPC for disturbances; NMPC better handles model mismatch.
-\end{enumerate}
+\textbf{Analysis:} NMPC meets settling time requirement; Linear MPC does not. NMPC handles nonlinearities directly in unified optimization. Both satisfy all constraints.
 
-\subsection{Question 3: Constraint Satisfaction}
-
-\begin{table}[H]
+\begin{figure}[H]
 \centering
-\begin{tabular}{@{}lccl@{}}
-\toprule
-\textbf{Constraint} & \textbf{Limit} & \textbf{Actual} & \textbf{Status} \\ \midrule
-Ground collision & $z \geq 0$ & $z_{\min} > 0$ & \textcolor{green}{\textbf{PASS}} ✓ \\
-Beta singularity & $|\beta| \leq 80°$ & $|\beta|_{\max} < 80°$ & \textcolor{green}{\textbf{PASS}} ✓ \\
-Servo angles & $|\delta| \leq 15°$ & $|\delta|_{\max} < 15°$ & \textcolor{green}{\textbf{PASS}} ✓ \\
-Avg throttle & $40 \leq P_{avg} \leq 80$ & $40 \leq P_{avg} \leq 80$ & \textcolor{green}{\textbf{PASS}} ✓ \\
-Diff throttle & $|P_{diff}| \leq 20$ & $|P_{diff}|_{\max} < 20$ & \textcolor{green}{\textbf{PASS}} ✓ \\ \bottomrule
-\end{tabular}
-\caption{Constraint verification throughout trajectory}
-\label{tab:constraints}
-\end{table}
+\includegraphics[width=0.85\textwidth]{comparison_figures/control_comparison.png}
+\caption{Control inputs comparison: Linear MPC (blue) vs NMPC (red)}
+\label{fig:control}
+\end{figure}
 
-\textbf{Answer:} \textcolor{blue}{\textbf{Yes}}, all safety-critical constraints are satisfied throughout the entire landing maneuver.
+\subsection{Settling Time Verification}
 
-\textbf{Critical Constraint - Throttle Bounds (40-80\%):}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures_deliverable_7_1/02_settling_time_verification.png}
+\caption{NMPC settling time verification with tolerance bands}
+\label{fig:settling}
+\end{figure}
 
-The constraint $40\% \leq P_{\text{avg}} \leq 80\%$ comes from physical rocket limitations:
-\begin{itemize}[noitemsep]
-\item \textbf{Minimum (40\%):} Below this, engines cannot overcome gravity or maintain stable combustion
-\item \textbf{Maximum (80\%):} Prevents structural damage, overheating, and saturation
-\item These are realistic operational limits (e.g., SpaceX Falcon 9: 40-100\% throttle range)
-\end{itemize}
+From Figure~\ref{fig:settling}, settling time $< 4$ s is verified with position error $< 0.05$ m at 3.5 s, velocity error $< 0.01$ m/s at 4.0 s, and angle error $< 1°$ at 3.8 s.
 
-\subsection{Question 4: Advantages of NMPC}
+\subsection{Pros and Cons}
 
-\textbf{Pros of NMPC (Part 7.1):}
-\begin{enumerate}
-\item \textbf{Accuracy:} Exact dynamics valid across entire operating range
-  \begin{itemize}[noitemsep]
-  \item No linearization error
-  \item Handles large angle changes ($30°$ roll)
-  \item Valid for high velocities and aggressive maneuvers
-  \end{itemize}
+\textbf{Advantages:} NMPC uses exact nonlinear dynamics without linearization error, employs unified optimization that captures coupling between axes, and excels at large maneuvers and aggressive trajectories. \textbf{Disadvantages:} Higher computational cost (4-8× slower than linear MPC), no formal stability guarantees, and potential convergence failures under tight timing constraints.
 
-\item \textbf{Unified Controller:} Single optimization handles all axes
-  \begin{itemize}[noitemsep]
-  \item Captures coupling between x, y, z, roll
-  \item No coordination overhead between subsystems
-  \item Simpler architecture than 4 separate controllers
-  \end{itemize}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures_deliverable_7_1/03_constraint_verification.png}
+\caption{NMPC constraint verification throughout trajectory}
+\label{fig:constraints}
+\end{figure}
 
-\item \textbf{Aggressive Maneuvers:} Can exploit full nonlinear envelope
-  \begin{itemize}[noitemsep]
-  \item Not limited to small deviations from trim
-  \item Can perform complex trajectories (flip, lateral maneuvers)
-  \item Better for acrobatic or emergency maneuvers
-  \end{itemize}
-
-\item \textbf{Simpler Tuning:} Single cost function
-  \begin{itemize}[noitemsep]
-  \item Only one $\mathbf{Q}, \mathbf{R}, \mathbf{P}$ matrix to tune
-  \item No need to coordinate 4 separate parameter sets
-  \item Easier to understand trade-offs
-  \end{itemize}
-
-\item \textbf{No Model Mismatch from Linearization:}
-  \begin{itemize}[noitemsep]
-  \item If nonlinear model is accurate, NMPC is accurate
-  \item Linear MPC suffers when operating far from design point
-  \end{itemize}
-\end{enumerate}
-
-\textbf{Cons of NMPC (Part 7.1):}
-\begin{enumerate}
-\item \textbf{Computational Burden:} 10-50× slower than linear MPC
-  \begin{itemize}[noitemsep]
-  \item May require code generation (e.g., ACADOS, forces)
-  \item Challenging for embedded systems
-  \end{itemize}
-
-\item \textbf{No Stability Guarantees:}
-  \begin{itemize}[noitemsep]
-  \item Only local optimality (not global)
-  \item No recursive feasibility proof
-  \item Terminal cost helps but doesn't guarantee stability
-  \end{itemize}
-
-\item \textbf{Solver Reliability:}
-  \begin{itemize}[noitemsep]
-  \item Nonconvex problems may fail to converge
-  \item May hit iteration limits under tight timing
-  \end{itemize}
-
-\item \textbf{No Explicit Robustness:}
-  \begin{itemize}[noitemsep]
-  \item Doesn't handle disturbances explicitly (unlike tube MPC)
-  \item Requires separate disturbance rejection mechanism
-  \end{itemize}
-\end{enumerate}
-
-\subsection{Question 5: Computational Cost}
-
-\textbf{Measured Performance:}
-\begin{itemize}[noitemsep]
-\item Solver: IPOPT (interior-point method)
-\item Average solve time: $\sim$50-200 ms per iteration (depends on initial guess quality)
-\item Control frequency: 20 Hz (50 ms per cycle)
-\item Feasibility: \textbf{Borderline} for real-time at 20 Hz
-\end{itemize}
-
-\textbf{Breakdown:}
-\begin{enumerate}[noitemsep]
-\item \textbf{Problem Size:}
-  \begin{itemize}[noitemsep]
-  \item Decision variables: $N \times n_u = 80 \times 4 = 320$ inputs + $81 \times 12 = 972$ states = 1292 total
-  \item Constraints: $80 \times 12 = 960$ dynamics + $\sim$400 bounds = $\sim$1360 total
-  \end{itemize}
-
-\item \textbf{Nonconvexity:} Nonlinear dynamics require iterative solver (IPOPT)
-
-\item \textbf{Warm-starting:} Using previous solution helps reduce iterations ($\sim$10-30 iterations typical)
-\end{enumerate}
-
-\textbf{Real-Time Feasibility:}
-\begin{itemize}[noitemsep]
-\item \textbf{Current:} Borderline at 20 Hz (may occasionally miss deadline)
-\item \textbf{Solutions:}
-  \begin{enumerate}[noitemsep]
-  \item Code generation (ACADOS, forces): 5-10× speedup
-  \item Reduce horizon: $H = 2$ s → $\sim$20-50 ms
-  \item Lower control rate: 10 Hz (100 ms budget)
-  \item GPU acceleration for large-scale problems
-  \end{enumerate}
-\end{itemize}
-
-\section{Recommendation: When to Use Each Approach}
-
-\textbf{Use Linear MPC (Part 6.2) when:}
-\begin{itemize}[noitemsep]
-\item Real-time performance is critical (embedded systems, high rates)
-\item Operating near known equilibrium
-\item Formal guarantees required (safety certification)
-\item Limited computational resources
-\item Explicit robustness needed (tube MPC)
-\end{itemize}
-
-\textbf{Use NMPC (Part 7.1) when:}
-\begin{itemize}[noitemsep]
-\item Large maneuvers away from equilibrium
-\item Coupled dynamics significant
-\item Accuracy matters more than speed
-\item Computational resources available
-\item Nonlinear constraints/objectives
-\end{itemize}
-
-\textbf{Hybrid Approach (Industry Best Practice):}
-
-For production systems (e.g., SpaceX Falcon 9), combine both:
-\begin{enumerate}[noitemsep]
-\item \textbf{NMPC:} Offline trajectory planning
-\item \textbf{Linear MPC:} Online tracking around NMPC reference
-\item \textbf{Gain Scheduling:} Multiple linear controllers at different points
-\end{enumerate}
-
-This combines NMPC's global accuracy with linear MPC's speed and guarantees.
-
-\section{Implementation Following Project Hints}
-
-All three hints from the project description are properly implemented:
-
-\textbf{Hint 1:} Use \texttt{rocket.f\_symbolic(x, u)} for dynamics
-\begin{itemize}[noitemsep]
-\item Implementation: \texttt{self.f = lambda x, u: rocket.f\_symbolic(x, u)[0]} (line 26)
-\item Benefit: Automatic differentiation, no manual Jacobian
-\end{itemize}
-
-\textbf{Hint 2:} Set \texttt{'expand': True} in solver options
-\begin{itemize}[noitemsep]
-\item Implementation: Line 215 in solver options dictionary
-\item Benefit: Faster NLP evaluation (expands symbolic graph)
-\end{itemize}
-
-\textbf{Hint 3:} Linearize system, compute terminal cost once
-\begin{itemize}[noitemsep]
-\item Implementation: \texttt{\_compute\_terminal\_cost()} method (lines 49-93)
-\item Process:
-  \begin{enumerate}[noitemsep]
-  \item Linearize: $(A, B) = \nabla f(\mathbf{x}_s, \mathbf{u}_s)$
-  \item Discretize: Zero-order hold (ZOH)
-  \item Solve DARE: $\mathbf{P} = \text{dare}(A_d, B_d, \mathbf{Q}, \mathbf{R})$
-  \item Store: \texttt{self.P\_terminal} (computed once)
-  \end{enumerate}
-\item Benefit: Theoretical basis for terminal cost, computed efficiently
-\item DARE condition number: $9.70 \times 10^2$ (well-conditioned)
-\end{itemize}
+NMPC is recommended when fast settling time is critical, large state deviations are expected, and computational resources are available. Linear MPC is preferred when high precision is required, computation is limited, or operation is near hover conditions.
 
 \section{Conclusion}
 
-The NMPC controller successfully lands the rocket with:
-\begin{itemize}[noitemsep]
-\item Final position error: < 2 cm
-\item Settling time: $\sim$3-4 seconds (meets 4s requirement)
-\item All constraints satisfied
-\item Proper implementation of all project hints
-\end{itemize}
-
-\textbf{Key Insights:}
-\begin{enumerate}[noitemsep]
-\item NMPC provides superior accuracy for large maneuvers
-\item Computational cost is the main limitation (10-50× slower than linear MPC)
-\item DARE-based terminal cost provides theoretical foundation
-\item Hybrid NMPC+Linear approach is industry best practice
-\end{enumerate}
-
-\textbf{Trade-off Summary:}
-\begin{center}
-\textit{NMPC trades computational cost for accuracy and generality.\\
-Linear MPC trades accuracy for speed and theoretical guarantees.}
-\end{center}
+The NMPC controller successfully lands the rocket with 1.92 cm error and settling time $< 4$ s. All constraints are satisfied. NMPC provides better settling time than Linear MPC but requires more computation (4-8× slower).
 
 \end{document}

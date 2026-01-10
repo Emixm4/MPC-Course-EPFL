@@ -1,0 +1,95 @@
+\section{Part 5}
+This section implements an offset-free tracking controller for the z-dimension using Kalman filter-based disturbance estimation to compensate for mass variations and achieve near-zero steady-state tracking error despite model mismatch.
+
+\subsection{Deliverable 5.1}
+
+\subsubsection{Design Procedure}
+
+The mass mismatch is modeled as a constant additive input disturbance: $x^+ = Ax + Bu + Bd$ with $d^+ = d$, where $x = v_z$, $u = P_{\text{avg}}$, and $d$ represents the unknown constant disturbance affecting control effectiveness. The state is augmented as $z = [x; d]$ with dynamics $A_{\text{aug}} = \begin{bmatrix} A & B \\ 0 & I \end{bmatrix}$, $B_{\text{aug}} = \begin{bmatrix} B \\ 0 \end{bmatrix}$, and $C_{\text{aug}} = \begin{bmatrix} C & 0 \end{bmatrix}$.
+
+A Kalman filter estimates $\hat{x}$ and $\hat{d}$ with tuning parameters $Q_{\text{state}} = 0.001$ (trust dynamics), $Q_{\text{disturb}} = 10^{-7}$ (nearly constant disturbance), and $R_{\text{meas}} = 0.01$ (trust measurements). The MPC incorporates the disturbance estimate in both dynamics ($x[k+1] = A x[k] + B (u[k] + \hat{d})$) and target computation ($x_s = A x_s + B (u_s + \hat{d})$ with $C x_s = r_{\text{ref}}$), ensuring the equilibrium input $u_s$ compensates for $\hat{d}$ to achieve offset-free tracking. Cost weights are $Q = 10.0$ and $R = 0.1$.
+
+\subsubsection{Simulation Results}
+
+The controller designed for mass = 1.778 kg was tested with mass = 1.5 kg (15.6\% mismatch), fuel\_rate = 0, initial conditions pos$_0$ = [0, 0, 1], v$_0$ = [5, 5, 10], reference v$_{\text{ref}}$ = [0, 0, 0], and 15-second simulation time.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Metric} & \textbf{Part 4} & \textbf{Part 5.1} & \textbf{Improvement} \\ \midrule
+Steady-State Error (m/s) & $3.80 \pm 0.0002$ & $0.46 \pm 0.053$ & \textbf{87.9\%} \\
+Disturbance Estimate & --- & 13.12 & --- \\
+Convergence Time (s) & --- & 12.5 & --- \\
+Throttle Adjustment & None & $\sim$54\% (from 67\%) & --- \\ \bottomrule
+\end{tabular}
+\caption{Part 4 vs. Part 5.1 performance}
+\label{tab:results_summary}
+\end{table}
+
+The baseline Part 4 controller exhibits persistent offset $v_z \approx -3.8$ m/s because the controller designed for the heavier rocket applies excessive throttle for the lighter mass. Part 5.1 achieves near-zero error $v_z \approx -0.46$ m/s as the disturbance estimator converges to $\hat{d} \approx 13.12$, allowing the target solver to compute compensating throttle reduction (87.9\% improvement).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{pictures/deliverable_5_1_comparison.png}
+\caption{Part 4 vs. Part 5.1: Offset-free tracking reduces error by 87.9\%.}
+\label{fig:comparison}
+\end{figure}
+
+
+
+
+\subsection{Deliverable 5.2}
+
+This deliverable tests the offset-free controller from Part 5.1 with time-varying mass due to fuel consumption. The controller exhibits persistent tracking error because the constant-disturbance assumption fails when mass decreases continuously, demonstrating fundamental limitations and motivating modifications for true offset-free tracking with changing mass.
+
+\subsubsection{Simulation Results}
+
+The controller designed for mass = 1.778 kg was tested with initial mass = 2.0 kg, fuel\_rate = 0.1 (mass decreases with thrust), initial conditions pos$_0$ = [0, 0, 1], v$_0$ = [5, 5, 10], reference v$_{\text{ref}}$ = [0, 0, 0], and 15-second simulation time.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Metric} & \textbf{Part 5.1} & \textbf{Part 5.2} & \textbf{Change} \\ \midrule
+Mass Profile & Constant (1.5 kg) & Varying (2.0 → 1.2 kg) & --- \\
+Steady-State Error (m/s) & $0.46 \pm 0.05$ & $1.47 \pm 0.03$ & {$+220\%$} \\
+Disturbance Estimate & Converges (13.12) & Diverges (grows) & {No convergence} \\
+Altitude Change (m) & Stable ($\sim$1 m) & +25 m & {Continuous climb} \\
+Fuel Remaining & N/A & 0.23 kg (77\% used) & --- \\ \bottomrule
+\end{tabular}
+\caption{Part 5.1 (constant mass) vs. Part 5.2 (time-varying mass)}
+\label{tab:comparison}
+\end{table}
+
+The offset-free controller fails to achieve zero steady-state error with time-varying mass, maintaining persistent offset of 1.47 m/s with continuous altitude gain (unlike Part 5.1 with 0.46 m/s error). The root cause is that the Kalman filter assumes constant disturbance ($d^+ = d$), but the actual disturbance $d(t) \propto 1/m(t) - 1/m_{\text{model}}$ changes continuously as mass decreases from 2.0 kg to 1.2 kg, causing the estimator to chase a moving target without converging.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{pictures/deliverable_5_2_results.png}
+\caption{Time-varying mass simulation: Persistent vz offset, altitude gain, continuously growing disturbance estimate $\hat{d}$.}
+\label{fig:results}
+\end{figure}
+
+\subsubsection{Tracking Offset Analysis}
+
+Significant tracking offset in the first 2-3 seconds occurs due to two compounding factors: estimator convergence and time-varying disturbance. The Kalman filter starts with initial guess $\hat{d}(0) = 0$ despite true disturbance $d(0) \neq 0$ from initial mass mismatch (2.0 kg vs. 1.778 kg), requiring 2-3 seconds to accumulate measurements and converge amid large initial velocities ($v_0 = [5,5,10]$) that create transients. Even as the estimator converges, the disturbance keeps changing as $d(t) \approx (1/m(t) - 1/m_{\text{model}}) \cdot \text{thrust}$ with decreasing mass $m(t) = m_0 - \int \text{fuel\_rate} \cdot |\text{thrust}| \, dt$, violating the constant-$d$ assumption and creating persistent estimator lag.
+
+The true dynamics with time-varying mass $v_z^+ = f(v_z, u, m(t))$ differ from the linearized model $v_z^+ = A v_z + B u$ (at $m = m_{\text{model}}$), creating actual disturbance $d_{\text{actual}}(t) \approx (1/m(t) - 1/m_{\text{model}}) \cdot \text{thrust}$ that is time-varying, while the estimator assumes constant $\hat{d}^+ = \hat{d}$, causing fundamental mismatch and persistent tracking lag.
+
+\subsubsection{Modifications for Time-Varying Mass}
+
+To achieve offset-free tracking with changing mass, the estimator must account for time-varying disturbance through two primary approaches.
+
+\textbf{Approach 1: Ramp Disturbance Model.} Model disturbance with constant rate of change $d(t) = d_0 + d_{\text{rate}} \cdot t$ using augmented state $x_{\text{aug}} = [v_z; \, d; \, d_{\text{rate}}]$ with dynamics including disturbance trajectory prediction $\hat{d}(k) = \hat{d}(0) + k \cdot T_s \cdot \hat{d}_{\text{rate}}$ for $k = 0, 1, \ldots, N$. This natural extension of Part 5.1 tracks linearly time-varying disturbances without needing actual mass knowledge, though it assumes linear rate and may fail with varying thrust.
+
+\textbf{Approach 2: Online Mass Estimation.} Directly estimate rocket mass using augmented state $x_{\text{aug}} = [v_z; \, m_{\text{estimate}}]$ with nonlinear dynamics $v_z^+ = A v_z + (B_{\text{nominal}}/m_{\text{estimate}}) \cdot u \cdot m_{\text{nominal}}$ and mass update $m^+ = m - \text{fuel\_rate} \cdot |\text{thrust}|$ (if known) or $m^+ = m$ (if unknown, slowly varying). Implementation uses Extended Kalman Filter (EKF) for nonlinear dynamics and adaptive MPC with $B_{\text{adapted}} = B_{\text{nominal}} \cdot (m_{\text{nominal}} / m_{\text{estimate}})$, providing physical interpretation and handling nonlinear mass-thrust relationships but requiring EKF complexity and good initial mass estimate.
+
+\subsubsection{Trajectory Behavior Analysis}
+
+The 15-second simulation exhibits three distinct phases. During initial deceleration (0-3s), large tracking error $v_z \approx 3.4 \pm 2.9$ m/s occurs with rapid altitude changes and aggressive control as the system decelerates from high initial velocity ($v_0 = 10$ m/s) while the Kalman filter converges from initial guess and $\hat{d}$ increases quickly to compensate for initial mass mismatch (mass: 2.0 to 1.8 kg). In quasi-steady tracking (3-10s), tracking error decreases but doesn't reach zero ($v_z \approx 1.2 \pm 0.07$ m/s) with stabilized though upward-drifting altitude as velocity approaches reference, the estimator partially converges but keeps adjusting as mass decreases from 1.8 to 1.3 kg, and the controller maintains quasi-equilibrium despite mismatch. During tracking degradation (10-15s), tracking error increases to $v_z \approx 1.5 \pm 0.03$ m/s with continuous altitude gain (23 m to 26 m) and rapidly growing $\hat{d}$ (5.7 to 10.9) as mass approaches 1.2 kg and thrust-to-weight ratio changes dramatically, making linearization increasingly inaccurate with accelerating disturbance rate ($d \propto 1/m$) and accumulating estimator lag.
+
+\subsubsection{Unexpected End Behavior}
+
+Towards simulation end (10-15s), several unexpected behaviors emerge. Positive velocity drift occurs where expected $v_z \to 0$ but actual $v_z \approx 1.47$ m/s (upward velocity) because time-varying disturbance change rate exceeds estimator adaptation rate, the constant-$d$ assumption fundamentally fails for rapidly decreasing mass, the rocket applies more throttle than needed, and excess thrust creates positive acceleration and upward drift with physical consequence of $\int v_z \, dt \approx 1.5 \times 15 \approx 22$ m altitude gain (observed: +25 m from 1 m to 26 m). Rapid growth of $\hat{d}$ occurs exponentially in final seconds because $d_{\text{actual}}(t) \propto 1/m(t) - 1/m_{\text{model}} = 1/(2.0 - \int \text{fuel}) - 1/1.778$ approaches 0.438 as $m(t) \to 1.0$ kg with rate of change $dd_{\text{actual}}/dt \propto \text{fuel\_rate} \cdot \text{thrust}/m^2 \to \infty$ as $m \to 1$, causing the constant-disturbance estimator to see exponentially growing innovation and respond by growing $\hat{d}$ exponentially without catching up. Fuel exhaustion would occur beyond 20s with initial fuel = 1.0 kg, consumption rate approximately 0.05 kg/s (at approximately 55\% throttle), leading to motor failure, free fall ballistic trajectory, uncontrolled descent, and crash, demonstrating critical safety issues with inadequate disturbance compensation in time-varying systems.
+
