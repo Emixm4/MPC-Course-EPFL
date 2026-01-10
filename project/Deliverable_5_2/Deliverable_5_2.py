@@ -20,7 +20,7 @@ sys.path.remove(part5_dir)
 
 # Simulation parameters
 Ts = 0.05
-sim_time = 15.0 
+sim_time = 15.0 # 20.25 for end of fuel behavior
 H = 5.0
 
 # Initial conditions
@@ -32,17 +32,13 @@ x_target = np.zeros((12,))
 rocket_params_path = os.path.join(parent_dir, "rocket.yaml")
 
 print("Deliverable 5.2 Time-Varying Mass")
-
-
 print("\n Simulating with time-varying mass")
-print("Initial mass: 2.0 kg (50% fuel)")
-print("Fuel rate: 0.1")
 
 rocket = Rocket(Ts=Ts, model_params_filepath=rocket_params_path)
 mpc = MPCVelControl_Part5.new_controller(rocket, Ts, H)
 
 rocket.mass = 2.0 
-rocket.fuel_rate = 0.1  # Mass decreases with thrust
+rocket.fuel_rate = 0.1
 
 try:
     t_cl, x_cl, u_cl, t_ol, x_ol, u_ol, ref = rocket.simulate_control(
