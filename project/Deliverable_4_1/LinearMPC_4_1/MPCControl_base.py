@@ -1,8 +1,8 @@
 import cvxpy as cp
 import numpy as np
 from control import dlqr
-from mpt4py import Polyhedron
-from mpt4py.base import HData
+# from mpt4py import Polyhedron  
+# from mpt4py.base import HData  
 from scipy.signal import cont2discrete
 
 
